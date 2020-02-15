@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <assert.h>
 
 #define PORT 5000
 
@@ -44,6 +45,59 @@ char *getiline(int fd)
 	return buf;
 }
 
+int islocalc(char c)
+{
+	/* !#$%&'*+-/09=?AZ^_`az{|}~ */
+	if (c == 33) return 1;
+	if (c > 34 && c < 40) return 1;
+	if (c == 42 || c == 43) return 1;
+	if (c == 45) return 1;
+	if (c > 46 && c < 58) return 1;
+	if (c == 61) return 1;
+	if (c > 64 && c <  91) return 1;
+	if (c > 93 && c < 127) return 1;
+	return 1;
+}
+
+int isaddrc(char c)
+{
+	/* anything except whitespace and [\] */
+	if (c > 32 && c <  91) return 1;
+	if (c > 93 && c < 127) return 1;
+	return 0;
+}
+
+int isdomainc(char c)
+{
+	/* -.AZaz */
+	if (c == 45 || c == 46) return 1;
+	if (c > 64 && c <  91) return 1;
+	if (c > 96 && c < 123) return 1;
+	return 0;
+}
+
+int pdomain(char **ptr)
+{
+	char *c = *ptr;
+	if (*c == '[') {
+		++c;
+		while (isaddrc(*c)) ++c;
+		if (*c != ']') return 0;
+		++c;
+	} else {
+		while (isdomainc(*c)) ++c;
+	}
+	*ptr = c;
+	return 1;
+}
+
+int pmailbox(char **ptr)
+{
+	char *user;
+	char *domain;
+	
+}
+
 int main()
 {
 	openlog("bmaild", 0, LOG_MAIL);
@@ -64,8 +118,7 @@ int main()
 		for (;;) {
 			char *line = getiline(client);
 			if (line == NULL) break;
-			printf("%s", line);
-			write(client, "ACK\n", 4);
+			char *cur = line;
 			free(line);
 		}
 		close(client);
@@ -76,3 +129,12 @@ int main()
 	return 0;
 }
 
+/* 
+ * HELO <SP> <domain> <CRLF>
+ * MAIL <SP> FROM:<reverse-path> <CRLF>
+ * RCPT <SP> TO:<forward-path> <CRLF>
+ * DATA <CRLF>
+ * RSET <CRLF>
+ * NOOP <CRLF>
+ * QUIT <CRLF>
+ */
