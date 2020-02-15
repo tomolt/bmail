@@ -47,16 +47,15 @@ char *getiline(int fd)
 
 int islocalc(char c)
 {
-	/* !#$%&'*+-/09=?AZ^_`az{|}~ */
+	/* !#$%&'*+-./09=?AZ^_`az{|}~ */
 	if (c == 33) return 1;
 	if (c > 34 && c < 40) return 1;
 	if (c == 42 || c == 43) return 1;
-	if (c == 45) return 1;
-	if (c > 46 && c < 58) return 1;
+	if (c > 44 && c < 58) return 1;
 	if (c == 61) return 1;
 	if (c > 64 && c <  91) return 1;
 	if (c > 93 && c < 127) return 1;
-	return 1;
+	return 0;
 }
 
 int isaddrc(char c)
@@ -134,7 +133,7 @@ int main()
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
 	if (sock < 0) die("Can't open port %d.", PORT);
 	
-	struct sockaddr_in6 addr;
+	struct sockaddr_in6 addr = { 0 };
 	addr.sin6_family = AF_INET6;
 	addr.sin6_port = htons(PORT);
 	addr.sin6_addr = in6addr_any;
