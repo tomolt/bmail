@@ -76,6 +76,28 @@ int isdomainc(char c)
 	return 0;
 }
 
+int pcrlf(char **ptr)
+{
+	char *c = *ptr;
+	if (*c != '\r') return 0;
+	++c;
+	if (*c != '\n') return 0;
+	++c;
+	*ptr = c;
+	return 1;
+}
+
+int plocal(char **ptr)
+{
+	char *c = *ptr;
+	/* TODO quoted local */
+	if (!islocalc(*c)) return 0;
+	do ++c;
+	while (islocalc(*c));
+	*ptr = c;
+	return 1;
+}
+
 int pdomain(char **ptr)
 {
 	char *c = *ptr;
@@ -85,7 +107,9 @@ int pdomain(char **ptr)
 		if (*c != ']') return 0;
 		++c;
 	} else {
-		while (isdomainc(*c)) ++c;
+		if (!isdomainc(*c)) return 0;
+		do ++c;
+		while (isdomainc(*c));
 	}
 	*ptr = c;
 	return 1;
@@ -93,9 +117,14 @@ int pdomain(char **ptr)
 
 int pmailbox(char **ptr)
 {
-	char *user;
-	char *domain;
-	
+	int s;
+	s = plocal(ptr);
+	if (!s) return 0;
+	if (**ptr != '@') return 0;
+	++*ptr;
+	s = pdomain(ptr);
+	if (!s) return 0;
+	return 1;
 }
 
 int main()
@@ -119,6 +148,11 @@ int main()
 			char *line = getiline(client);
 			if (line == NULL) break;
 			char *cur = line;
+			if (pmailbox(&cur)) {
+				printf("proper mailbox.\n");
+			} else {
+				printf("bad input.\n");
+			}
 			free(line);
 		}
 		close(client);
