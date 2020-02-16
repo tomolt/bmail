@@ -11,9 +11,8 @@
 #define PORT 5000
 #define DOMAIN "bmaild.domain"
 
-enum {
-	HELO, EHLO, MAIL, RCPT, NOOP, QUIT
-};
+enum { HELO, EHLO, MAIL, RCPT, DATA, NOOP, QUIT };
+enum { CHATTING, LISTENING, QUITTING };
 
 void die(const char *format, ...)
 {
@@ -193,6 +192,11 @@ int pcommand(char **ptr, int *cmd)
 		*cmd = RCPT;
 		return 1;
 	}
+	if (icmpadv(ptr, "DATA")) {
+		if (!pcrlf(ptr)) return 0;
+		*cmd = DATA;
+		return 1;
+	}
 	if (icmpadv(ptr, "NOOP")) {
 		if (!pcrlf(ptr)) return 0;
 		*cmd = NOOP;
@@ -224,38 +228,58 @@ int main()
 	for (;;) {
 		int client = accept(sock, NULL, NULL);
 		dprintf(client, "220 %s Ready\r\n", DOMAIN);
-		for (;;) {
+		int state = CHATTING;
+		while (state != QUITTING) {
 			char *line = getiline(client);
 			if (line == NULL) break;
-			char *cur = line;
-			int quit = 0, cmd = 0;
-			if (!pcommand(&cur, &cmd)) {
-				dprintf(client, "500 Syntax Error\r\n");
-			} else {
-				switch (cmd) {
-				case HELO:
-					dprintf(client, "250 %s\r\n", DOMAIN);
-					break;
-				case EHLO:
-					dprintf(client, "250 %s\r\n", DOMAIN);
-					break;
-				case MAIL:
-					dprintf(client, "250 OK\r\n");
-					break;
-				case RCPT:
-					dprintf(client, "250 OK\r\n");
-					break;
-				case NOOP:
-					dprintf(client, "250 OK\r\n");
-					break;
-				case QUIT:
-					dprintf(client, "221 %s Bye\r\n", DOMAIN);
-					quit = 1;
-					break;
+			switch (state) {
+			case CHATTING: {
+				char *cur = line;
+				int cmd = 0;
+				if (!pcommand(&cur, &cmd)) {
+					dprintf(client, "500 Syntax Error\r\n");
+				} else {
+					switch (cmd) {
+					case HELO:
+						dprintf(client, "250 %s\r\n", DOMAIN);
+						break;
+					case EHLO:
+						dprintf(client, "250 %s\r\n", DOMAIN);
+						break;
+					case MAIL:
+						dprintf(client, "250 OK\r\n");
+						break;
+					case RCPT:
+						dprintf(client, "250 OK\r\n");
+						break;
+					case DATA:
+						dprintf(client, "354 Listening\r\n");
+						state = LISTENING;
+						break;
+					case NOOP:
+						dprintf(client, "250 OK\r\n");
+						break;
+					case QUIT:
+						dprintf(client, "221 %s Bye\r\n", DOMAIN);
+						state = QUITTING;
+						break;
+					}
 				}
+			} break;
+			case LISTENING:
+				if (line[0] != '.') {
+					printf("%s", line);
+				} else {
+					if (line[1] == '\r' && line[2] == '\n') {
+						dprintf(client, "250 OK\r\n");
+						state = CHATTING;
+					} else {
+						printf("%s", line + 1);
+					}
+				}
+				break;
 			}
 			free(line);
-			if (quit) break;
 		}
 		close(client);
 	}
