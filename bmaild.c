@@ -1,7 +1,9 @@
 #include <syslog.h>
 #include <stdarg.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -14,13 +16,18 @@
 enum { HELO, EHLO, MAIL, RCPT, DATA, NOOP, QUIT };
 enum { CHATTING, LISTENING, QUITTING };
 
-void die(const char *format, ...)
+void die(const char *fmt, ...)
 {
+	int err = errno;
+	const int prio = LOG_MAIL | LOG_EMERG;
 	va_list va;
-	va_start(va, format);
-	vsyslog(LOG_MAIL | LOG_EMERG, format, va);
+	va_start(va, fmt);
+	vsyslog(prio, fmt, va);
 	va_end(va);
-	exit(-1);
+	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
+		syslog(prio, "  %s", strerror(err));
+	}
+	exit(1);
 }
 
 char *getiline(int fd)
@@ -216,7 +223,7 @@ int main()
 	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
 	if (sock < 0) die("Can't open port %d.", PORT);
-	
+
 	struct sockaddr_in6 addr = { 0 };
 	addr.sin6_family = AF_INET6;
 	addr.sin6_port = htons(PORT);
