@@ -9,6 +9,11 @@
 #include <assert.h>
 
 #define PORT 5000
+#define DOMAIN "bmaild.domain"
+
+enum {
+	HELO, EHLO, NOOP, QUIT
+};
 
 void die(const char *format, ...)
 {
@@ -43,6 +48,20 @@ char *getiline(int fd)
 	}
 	buf[len] = '\0';
 	return buf;
+}
+
+int icmpadv(char **ptr, char *exp)
+{
+	char *cur = *ptr;
+	do {
+		char ec = *exp;
+		assert(ec > 64 && ec < 91);
+		char cc = *cur & 0xDF;
+		if (ec != cc) return 0;
+		++exp, ++cur;
+	} while (*exp);
+	*ptr = cur;
+	return 1;
 }
 
 int islocalc(char c)
@@ -126,6 +145,37 @@ int pmailbox(char **ptr)
 	return 1;
 }
 
+int pcommand(char **ptr, int *cmd)
+{
+	if (icmpadv(ptr, "HELO")) {
+		if (**ptr != ' ') return 0;
+		++*ptr;
+		if (!pdomain(ptr)) return 0;
+		if (!pcrlf(ptr)) return 0;
+		*cmd = HELO;
+		return 1;
+	}
+	if (icmpadv(ptr, "EHLO")) {
+		if (**ptr != ' ') return 0;
+		++*ptr;
+		if (!pdomain(ptr)) return 0;
+		if (!pcrlf(ptr)) return 0;
+		*cmd = EHLO;
+		return 1;
+	}
+	if (icmpadv(ptr, "NOOP")) {
+		if (!pcrlf(ptr)) return 0;
+		*cmd = NOOP;
+		return 1;
+	}
+	if (icmpadv(ptr, "QUIT")) {
+		if (!pcrlf(ptr)) return 0;
+		*cmd = QUIT;
+		return 1;
+	}
+	return 0;
+}
+
 int main()
 {
 	openlog("bmaild", 0, LOG_MAIL);
@@ -143,14 +193,30 @@ int main()
 
 	for (;;) {
 		int client = accept(sock, NULL, NULL);
-		for (;;) {
+		dprintf(client, "220 %s Ready\r\n", DOMAIN);
+		while (!(client < 0)) {
 			char *line = getiline(client);
 			if (line == NULL) break;
 			char *cur = line;
-			if (pmailbox(&cur)) {
-				printf("proper mailbox.\n");
+			int cmd = 0;
+			if (!pcommand(&cur, &cmd)) {
+				dprintf(client, "500 Syntax Error\r\n");
 			} else {
-				printf("bad input.\n");
+				switch (cmd) {
+				case HELO:
+					dprintf(client, "250 %s\r\n", DOMAIN);
+					break;
+				case EHLO:
+					dprintf(client, "250 %s\r\n", DOMAIN);
+					break;
+				case NOOP:
+					dprintf(client, "250 OK\r\n");
+					break;
+				case QUIT:
+					dprintf(client, "221 %s Bye\r\n", DOMAIN);
+					client = -1;
+					break;
+				}
 			}
 			free(line);
 		}
@@ -164,6 +230,7 @@ int main()
 
 /* 
  * HELO <SP> <domain> <CRLF>
+ * EHLO <SP> <domain> <CRLF>
  * MAIL <SP> FROM:<reverse-path> <CRLF>
  * RCPT <SP> TO:<forward-path> <CRLF>
  * DATA <CRLF>
