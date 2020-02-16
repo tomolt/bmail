@@ -1,6 +1,7 @@
 #include <syslog.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,9 +13,12 @@
 
 #define PORT 5000
 #define DOMAIN "bmaild.domain"
+#define TIMEOUT 300
 
 enum { HELO, EHLO, MAIL, RCPT, DATA, NOOP, QUIT };
 enum { CHATTING, LISTENING, QUITTING };
+
+static int client;
 
 void die(const char *fmt, ...)
 {
@@ -28,6 +32,12 @@ void die(const char *fmt, ...)
 		syslog(prio, "  %s", strerror(err));
 	}
 	exit(1);
+}
+
+static void timeout(int signal)
+{
+	(void) signal;
+	close(client);
 }
 
 char *getiline(int fd)
@@ -221,24 +231,32 @@ int main()
 {
 	openlog("bmaild", 0, LOG_MAIL);
 	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
+	if (signal(SIGALRM, timeout) == SIG_ERR) die("Can't set up timeout signal:");
+
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
-	if (sock < 0) die("Can't open port %d.", PORT);
+	if (sock < 0) die("Can't open port %d:", PORT);
 
 	struct sockaddr_in6 addr = { 0 };
 	addr.sin6_family = AF_INET6;
 	addr.sin6_port = htons(PORT);
 	addr.sin6_addr = in6addr_any;
 
-	bind(sock, (struct sockaddr *) &addr, sizeof(addr));
-	listen(sock, 1);
+	int s = bind(sock, (struct sockaddr *) &addr, sizeof(addr));
+	if (s < 0) die("Can't bind to socket:");
+	s = listen(sock, 1);
+	if (s < 0) die("Can't listen on socket:");
 
 	for (;;) {
-		int client = accept(sock, NULL, NULL);
+		client = accept(sock, NULL, NULL);
+		/* TODO log accept errno problems? */
 		dprintf(client, "220 %s Ready\r\n", DOMAIN);
 		int state = CHATTING;
 		while (state != QUITTING) {
+			alarm(TIMEOUT);
 			char *line = getiline(client);
 			if (line == NULL) break;
+			alarm(0);
+			/* TODO is a write timeout neccessary? */
 			switch (state) {
 			case CHATTING: {
 				char *cur = line;
