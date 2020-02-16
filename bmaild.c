@@ -12,7 +12,7 @@
 #define DOMAIN "bmaild.domain"
 
 enum {
-	HELO, EHLO, NOOP, QUIT
+	HELO, EHLO, MAIL, RCPT, NOOP, QUIT
 };
 
 void die(const char *format, ...)
@@ -163,6 +163,36 @@ int pcommand(char **ptr, int *cmd)
 		*cmd = EHLO;
 		return 1;
 	}
+	if (icmpadv(ptr, "MAIL")) {
+		if (**ptr != ' ') return 0;
+		++*ptr;
+		if (!icmpadv(ptr, "FROM")) return 0;
+		if (**ptr != ':') return 0;
+		++*ptr;
+		if (**ptr != '<') return 0;
+		++*ptr;
+		if (!pmailbox(ptr)) return 0;
+		if (**ptr != '>') return 0;
+		++*ptr;
+		if (!pcrlf(ptr)) return 0;
+		*cmd = MAIL;
+		return 1;
+	}
+	if (icmpadv(ptr, "RCPT")) {
+		if (**ptr != ' ') return 0;
+		++*ptr;
+		if (!icmpadv(ptr, "TO")) return 0;
+		if (**ptr != ':') return 0;
+		++*ptr;
+		if (**ptr != '<') return 0;
+		++*ptr;
+		if (!pmailbox(ptr)) return 0;
+		if (**ptr != '>') return 0;
+		++*ptr;
+		if (!pcrlf(ptr)) return 0;
+		*cmd = RCPT;
+		return 1;
+	}
 	if (icmpadv(ptr, "NOOP")) {
 		if (!pcrlf(ptr)) return 0;
 		*cmd = NOOP;
@@ -194,11 +224,11 @@ int main()
 	for (;;) {
 		int client = accept(sock, NULL, NULL);
 		dprintf(client, "220 %s Ready\r\n", DOMAIN);
-		while (!(client < 0)) {
+		for (;;) {
 			char *line = getiline(client);
 			if (line == NULL) break;
 			char *cur = line;
-			int cmd = 0;
+			int quit = 0, cmd = 0;
 			if (!pcommand(&cur, &cmd)) {
 				dprintf(client, "500 Syntax Error\r\n");
 			} else {
@@ -209,16 +239,23 @@ int main()
 				case EHLO:
 					dprintf(client, "250 %s\r\n", DOMAIN);
 					break;
+				case MAIL:
+					dprintf(client, "250 OK\r\n");
+					break;
+				case RCPT:
+					dprintf(client, "250 OK\r\n");
+					break;
 				case NOOP:
 					dprintf(client, "250 OK\r\n");
 					break;
 				case QUIT:
 					dprintf(client, "221 %s Bye\r\n", DOMAIN);
-					client = -1;
+					quit = 1;
 					break;
 				}
 			}
 			free(line);
+			if (quit) break;
 		}
 		close(client);
 	}
@@ -237,4 +274,5 @@ int main()
  * RSET <CRLF>
  * NOOP <CRLF>
  * QUIT <CRLF>
+ * VRFY <SP> <string> <CRLF>
  */
