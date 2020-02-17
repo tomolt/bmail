@@ -11,8 +11,9 @@
 #include <arpa/inet.h>
 #include <assert.h>
 
-#define PORT 5000
+#define CONF_PATH "bmaild.conf"
 #define DOMAIN "bmaild.domain"
+#define PORT 5000
 #define TIMEOUT 300
 
 enum { HELO, EHLO, MAIL, RCPT, DATA, NOOP, QUIT };
@@ -40,11 +41,77 @@ static void timeout(int signal)
 	close(client);
 }
 
+#if 0
+int isconfkc(char c)
+{
+	if (c >= '0' && c <= '9') return 1;
+	if (c >= 'A' && c <= 'Z') return 1;
+	if (c == '_') return 1;
+	if (c >= 'a' && c <= 'z') return 1;
+	return 0;
+}
+
+void loadconf(void)
+{
+	errno = 0;
+	FILE *file = fopen(CONF_PATH, "r");
+	if (file == NULL) die("Can't open %s:", CONF_PATH);
+	char *line = NULL;
+	size_t len = 0;
+	for (;;) {
+		/* read a single line */
+		int s = getline(&line, &len);
+		if (s < 0) die("Can't read %s:", CONF_PATH);
+		char *cur = line, *key, *val;
+		/* skip comments */
+		if (*cur == '#') continue;
+		/* read key and '=' */
+		key = cur;
+		if (!isconfkc(*cur)) die("conf: Missing key.");
+		do ++cur;
+		while (isconfkc(*cur));
+		if (*cur != '=') die("conf: Missing '='.");
+		*cur = 0, ++cur;
+		/* skip opening '"' */
+		if (*cur != '"') die("conf: Missing opening '\"'.");
+		++cur;
+		/* read value */
+		/* FIXME proper backslash escapes! */
+		val = cur;
+		int esc = 0;
+		for (;;) {
+			if (!*cur) die("conf: Missing closing '\"'.");
+			if (!esc && *cur == '"') break;
+			esc = (*cur == '\\');
+		}
+		*cur = 0, ++cur;
+		/* skip trailing whitespace */
+		while (*cur == ' ') ++cur;
+		/* skip closing newline, if any */
+		if (*cur == '\n') ++cur;
+		/* ensure there is nothing after the key-value pair */
+		if (*cur) die("conf: Garbage after key-value pair.");
+
+		if (strcmp(key, "domain") == 0) {
+			conf.domain = val;
+		} else if (strcmp(key, "port") == 0) {
+			conf.port = val;
+		} else {
+			free(val);
+			die("conf: No such key '%s'.", key);
+		}
+	}
+	free(line);
+	fclose(file);
+}
+#endif
+
 char *getiline(int fd)
 {
 	size_t len = 0;
 	size_t cap = 128;
 	char *buf = malloc(cap);
+	/* FIXME buf can be NULL here! */
 	char cr = 0;
 	for (;;) {
 		char ch;
@@ -54,9 +121,10 @@ char *getiline(int fd)
 			return NULL;
 		}
 		size_t idx = len++;
-		if (len > cap) {
+		if (len+1 > cap) {
 			cap *= 2;
 			buf = realloc(buf, cap);
+			/* FIXME buf can be NULL here! */
 		}
 		buf[idx] = ch;
 		if (cr && ch == '\n') break;
