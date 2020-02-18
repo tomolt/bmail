@@ -16,8 +16,14 @@
 #define PORT 5000
 #define TIMEOUT 300
 
-enum { HELO, EHLO, MAIL, RCPT, DATA, NOOP, QUIT };
 enum { CHATTING, LISTENING, QUITTING };
+
+struct str
+{
+	char *data;
+	size_t len;
+	size_t cap;
+};
 
 static int client;
 
@@ -33,6 +39,28 @@ void die(const char *fmt, ...)
 		syslog(prio, "  %s", strerror(err));
 	}
 	exit(1);
+}
+
+int mkstr(struct str *str, size_t init)
+{
+	str->len = 0;
+	str->cap = init;
+	str->data = malloc(str->cap);
+	if (str->data == NULL) return -1;
+	return 0;
+}
+
+int strput(struct str *str, char c)
+{
+	int idx = str->len++;
+	if (str->len > str->cap) {
+		str->cap *= 2;
+		void *mem = realloc(str->data, str->cap);
+		if (mem == NULL) return -1;
+		str->data = mem;
+	}
+	str->data[idx] = c;
+	return 0;
 }
 
 static void timeout(int signal)
@@ -106,32 +134,21 @@ void loadconf(void)
 }
 #endif
 
-char *getiline(int fd)
+int getiline(int fd, struct str *str)
 {
-	size_t len = 0;
-	size_t cap = 128;
-	char *buf = malloc(cap);
-	/* FIXME buf can be NULL here! */
+	if (mkstr(str, 128) < 0) return -1;
 	char cr = 0;
 	for (;;) {
 		char ch;
 		ssize_t s = read(fd, &ch, 1);
 		if (s <= 0) {
-			free(buf);
-			return NULL;
+			free(str->data);
+			return -1;
 		}
-		size_t idx = len++;
-		if (len+1 > cap) {
-			cap *= 2;
-			buf = realloc(buf, cap);
-			/* FIXME buf can be NULL here! */
-		}
-		buf[idx] = ch;
-		if (cr && ch == '\n') break;
+		if (strput(str, ch) < 0) return -1;
+		if (cr && ch == '\n') return 0;
 		cr = (ch == '\r');
 	}
-	buf[len] = '\0';
-	return buf;
 }
 
 int icmpadv(char **ptr, char *exp)
@@ -189,54 +206,53 @@ int pcrlf(char **ptr)
 	return 1;
 }
 
-int plocal(char **ptr)
+int plocal(char **ptr, struct str *str)
 {
 	char *c = *ptr;
+	mkstr(str, 16);
 	/* TODO quoted local */
 	if (!islocalc(*c)) return 0;
-	do ++c;
+	do if (strput(str, *c++) < 0) return 0;
 	while (islocalc(*c));
 	*ptr = c;
 	return 1;
 }
 
-int pdomain(char **ptr)
+int pdomain(char **ptr, struct str *str)
 {
 	char *c = *ptr;
+	mkstr(str, 16);
 	if (*c == '[') {
-		++c;
-		while (isaddrc(*c)) ++c;
+		do if (strput(str, *c++) < 0) return 0;
+		while (isaddrc(*c));
 		if (*c != ']') return 0;
-		++c;
+		if (strput(str, *c++) < 0) return 0;
 	} else {
 		if (!isdomainc(*c)) return 0;
-		do ++c;
+		do if (strput(str, *c++) < 0) return 0;
 		while (isdomainc(*c));
 	}
 	*ptr = c;
 	return 1;
 }
 
-int pmailbox(char **ptr)
+int pmailbox(char **ptr, struct str *local, struct str *domain)
 {
-	int s;
-	s = plocal(ptr);
-	if (!s) return 0;
+	if (!plocal(ptr, local)) return 0;
 	if (**ptr != '@') return 0;
 	++*ptr;
-	s = pdomain(ptr);
-	if (!s) return 0;
+	if (!pdomain(ptr, domain)) return 0;
 	return 1;
 }
 
-int pcommand(char **ptr, int *cmd)
+int pcommand(char **ptr)
 {
 	if (icmpadv(ptr, "HELO")) {
 		if (**ptr != ' ') return 0;
 		++*ptr;
 		if (!pdomain(ptr)) return 0;
 		if (!pcrlf(ptr)) return 0;
-		*cmd = HELO;
+		dprintf(client, "250 %s\r\n", DOMAIN);
 		return 1;
 	}
 	if (icmpadv(ptr, "EHLO")) {
@@ -244,7 +260,7 @@ int pcommand(char **ptr, int *cmd)
 		++*ptr;
 		if (!pdomain(ptr)) return 0;
 		if (!pcrlf(ptr)) return 0;
-		*cmd = EHLO;
+		dprintf(client, "250 %s\r\n", DOMAIN);
 		return 1;
 	}
 	if (icmpadv(ptr, "MAIL")) {
@@ -259,7 +275,7 @@ int pcommand(char **ptr, int *cmd)
 		if (**ptr != '>') return 0;
 		++*ptr;
 		if (!pcrlf(ptr)) return 0;
-		*cmd = MAIL;
+		dprintf(client, "250 OK\r\n");
 		return 1;
 	}
 	if (icmpadv(ptr, "RCPT")) {
@@ -274,22 +290,24 @@ int pcommand(char **ptr, int *cmd)
 		if (**ptr != '>') return 0;
 		++*ptr;
 		if (!pcrlf(ptr)) return 0;
-		*cmd = RCPT;
+		dprintf(client, "250 OK\r\n");
 		return 1;
 	}
 	if (icmpadv(ptr, "DATA")) {
 		if (!pcrlf(ptr)) return 0;
-		*cmd = DATA;
+		dprintf(client, "354 Listening\r\n");
+		state = LISTENING;
 		return 1;
 	}
 	if (icmpadv(ptr, "NOOP")) {
 		if (!pcrlf(ptr)) return 0;
-		*cmd = NOOP;
+		dprintf(client, "250 OK\r\n");
 		return 1;
 	}
 	if (icmpadv(ptr, "QUIT")) {
 		if (!pcrlf(ptr)) return 0;
-		*cmd = QUIT;
+		dprintf(client, "221 %s Bye\r\n", DOMAIN);
+		state = QUITTING;
 		return 1;
 	}
 	return 0;
@@ -321,58 +339,34 @@ int main()
 		int state = CHATTING;
 		while (state != QUITTING) {
 			alarm(TIMEOUT);
-			char *line = getiline(client);
-			if (line == NULL) break;
+			struct str line;
+			if (getiline(client, &line) < 0) {
+				free(line.data);
+				break;
+			}
 			alarm(0);
-			/* TODO is a write timeout neccessary? */
+			/* TODO we need a write timeout as well! */
 			switch (state) {
 			case CHATTING: {
-				char *cur = line;
-				int cmd = 0;
-				if (!pcommand(&cur, &cmd)) {
+				char *cur = line.data;
+				if (!pcommand(&cur)) {
 					dprintf(client, "500 Syntax Error\r\n");
-				} else {
-					switch (cmd) {
-					case HELO:
-						dprintf(client, "250 %s\r\n", DOMAIN);
-						break;
-					case EHLO:
-						dprintf(client, "250 %s\r\n", DOMAIN);
-						break;
-					case MAIL:
-						dprintf(client, "250 OK\r\n");
-						break;
-					case RCPT:
-						dprintf(client, "250 OK\r\n");
-						break;
-					case DATA:
-						dprintf(client, "354 Listening\r\n");
-						state = LISTENING;
-						break;
-					case NOOP:
-						dprintf(client, "250 OK\r\n");
-						break;
-					case QUIT:
-						dprintf(client, "221 %s Bye\r\n", DOMAIN);
-						state = QUITTING;
-						break;
-					}
 				}
 			} break;
 			case LISTENING:
-				if (line[0] != '.') {
-					printf("%s", line);
+				if (line.data[0] != '.') {
+					printf("%.*s", (int) line.len, line.data);
 				} else {
-					if (line[1] == '\r' && line[2] == '\n') {
+					if (line.data[1] == '\r' && line.data[2] == '\n') {
 						dprintf(client, "250 OK\r\n");
 						state = CHATTING;
 					} else {
-						printf("%s", line + 1);
+						printf("%.*s", (int) line.len - 1, line.data + 1);
 					}
 				}
 				break;
 			}
-			free(line);
+			free(line.data);
 		}
 		close(client);
 	}
