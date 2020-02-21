@@ -152,20 +152,6 @@ int getiline(int fd, struct str *str)
 	}
 }
 
-int icmpadv(char **ptr, char *exp)
-{
-	char *cur = *ptr;
-	do {
-		char ec = *exp;
-		assert(ec > 64 && ec < 91);
-		char cc = *cur & 0xDF;
-		if (ec != cc) return 0;
-		++exp, ++cur;
-	} while (*exp);
-	*ptr = cur;
-	return 1;
-}
-
 int islocalc(char c)
 {
 	/* !#$%&'*+-./09=?AZ^_`az{|}~ */
@@ -196,14 +182,29 @@ int isdomainc(char c)
 	return 0;
 }
 
+int pchar(char **ptr, char ch)
+{
+	int s = (**ptr == ch);
+	*ptr += s;
+	return s;
+}
+
 int pcrlf(char **ptr)
 {
-	char *c = *ptr;
-	if (*c != '\r') return 0;
-	++c;
-	if (*c != '\n') return 0;
-	++c;
-	*ptr = c;
+	return pchar(ptr, '\r') && pchar(ptr, '\n');
+}
+
+int pword(char **ptr, char *exp)
+{
+	char *cur = *ptr;
+	do {
+		char ec = *exp;
+		assert(ec > 64 && ec < 91);
+		char cc = *cur & 0xDF;
+		if (ec != cc) return 0;
+		++exp, ++cur;
+	} while (*exp);
+	*ptr = cur;
 	return 1;
 }
 
@@ -237,131 +238,102 @@ int pdomain(char **ptr, struct str *str)
 
 int pmailbox(char **ptr, struct str *local, struct str *domain)
 {
-	if (!plocal(ptr, local)) return 0;
-	if (**ptr != '@') return 0;
-	++*ptr;
-	if (!pdomain(ptr, domain)) return 0;
-	return 1;
+	return plocal(ptr, local) && pchar(ptr, '@') && pdomain(ptr, domain);
 }
 
 int phelo(char **ptr, struct str *domain)
 {
-	if (**ptr != ' ') return 0;
-	++*ptr;
-	if (!pdomain(ptr, domain)) return 0;
-	if (!pcrlf(ptr)) return 0;
-	return 1;
+	return pchar(ptr, ' ') && pdomain(ptr, domain) && pcrlf(ptr);
 }
 
 int pmail(char **ptr, struct str *local, struct str *domain)
 {
-	if (**ptr != ' ') return 0;
-	++*ptr;
-	if (!icmpadv(ptr, "FROM")) return 0;
-	if (**ptr != ':') return 0;
-	++*ptr;
-	if (**ptr != '<') return 0;
-	++*ptr;
-	if (!pmailbox(ptr, local, domain)) return 0;
-	if (**ptr != '>') return 0;
-	++*ptr;
-	if (!pcrlf(ptr)) return 0;
-	return 1;
+	int s =  pchar(ptr, ' ') && pword(ptr, "FROM") && pchar(ptr, ':');
+	s = s && pchar(ptr, '<') && pmailbox(ptr, local, domain) && pchar(ptr, '>');
+	return   pcrlf(ptr);
 }
 
 int prcpt(char **ptr, struct str *local, struct str *domain)
 {
-	if (**ptr != ' ') return 0;
-	++*ptr;
-	if (!icmpadv(ptr, "TO")) return 0;
-	if (**ptr != ':') return 0;
-	++*ptr;
-	if (**ptr != '<') return 0;
-	++*ptr;
-	if (!pmailbox(ptr, local, domain)) return 0;
-	if (**ptr != '>') return 0;
-	++*ptr;
-	if (!pcrlf(ptr)) return 0;
-	return 1;
+	int s =  pchar(ptr, ' ') && pword(ptr, "TO") && pchar(ptr, ':');
+	s = s && pchar(ptr, '<') && pmailbox(ptr, local, domain) && pchar(ptr, '>');
+	return   pcrlf(ptr);
+}
+
+void dohelo(char **ptr, int ext)
+{
+	(void) ext;
+	struct str domain;
+	mkstr(&domain, 16);
+	if (phelo(ptr, &domain)) {
+		dprintf(client, "250 %s\r\n", DOMAIN);
+	} else {
+		dprintf(client, "501 Syntax Error\r\n");
+	}
+	free(domain.data);
+}
+
+void domail(char **ptr)
+{
+	struct str local, domain;
+	mkstr(&local, 16);
+	mkstr(&domain, 16);
+	if (pmail(ptr, &local, &domain)) {
+		dprintf(client, "250 OK\r\n");
+	} else {
+		dprintf(client, "501 Syntax Error\r\n");
+	}
+	free(local.data);
+	free(domain.data);
+}
+
+void dorcpt(char **ptr)
+{
+	struct str local, domain;
+	mkstr(&local, 16);
+	mkstr(&domain, 16);
+	if (prcpt(ptr, &local, &domain)) {
+		dprintf(client, "250 OK\r\n");
+	} else {
+		dprintf(client, "501 Syntax Error\r\n");
+	}
+	free(local.data);
+	free(domain.data);
 }
 
 void docommand(char **ptr)
 {
-	if (icmpadv(ptr, "HELO")) {
-		struct str domain;
-		mkstr(&domain, 16);
-		if (phelo(ptr, &domain)) {
-			dprintf(client, "250 %s\r\n", DOMAIN);
-		} else {
-			dprintf(client, "501 Syntax Error\r\n");
-		}
-		free(domain.data);
-		return;
-	}
-	if (icmpadv(ptr, "EHLO")) {
-		struct str domain;
-		mkstr(&domain, 16);
-		if (phelo(ptr, &domain)) {
-			dprintf(client, "250 %s\r\n", DOMAIN);
-		} else {
-			dprintf(client, "501 Syntax Error\r\n");
-		}
-		free(domain.data);
-		return;
-	}
-	if (icmpadv(ptr, "MAIL")) {
-		struct str local, domain;
-		mkstr(&local, 16);
-		mkstr(&domain, 16);
-		if (pmail(ptr, &local, &domain)) {
-			dprintf(client, "250 OK\r\n");
-		} else {
-			dprintf(client, "501 Syntax Error\r\n");
-		}
-		free(local.data);
-		free(domain.data);
-		return;
-	}
-	if (icmpadv(ptr, "RCPT")) {
-		struct str local, domain;
-		mkstr(&local, 16);
-		mkstr(&domain, 16);
-		if (prcpt(ptr, &local, &domain)) {
-			dprintf(client, "250 OK\r\n");
-		} else {
-			dprintf(client, "501 Syntax Error\r\n");
-		}
-		free(local.data);
-		free(domain.data);
-		return;
-	}
-	if (icmpadv(ptr, "DATA")) {
+	if (pword(ptr, "HELO")) {
+		dohelo(ptr, 0);
+	} else if (pword(ptr, "EHLO")) {
+		dohelo(ptr, 1);
+	} else if (pword(ptr, "MAIL")) {
+		domail(ptr);
+	} else if (pword(ptr, "RCPT")) {
+		dorcpt(ptr);
+	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
 			state = LISTENING;
 			dprintf(client, "354 Listening\r\n");
 		} else {
 			dprintf(client, "501 Syntax Error\r\n");
 		}
-		return;
-	}
-	if (icmpadv(ptr, "NOOP")) {
+	} else if (pword(ptr, "NOOP")) {
 		if (pcrlf(ptr)) {
 			dprintf(client, "250 OK\r\n");
 		} else {
 			dprintf(client, "501 Syntax Error\r\n");
 		}
-		return;
-	}
-	if (icmpadv(ptr, "QUIT")) {
+	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
 			state = QUITTING;
 			dprintf(client, "221 %s Bye\r\n", DOMAIN);
 		} else {
 			dprintf(client, "501 Syntax Error\r\n");
 		}
-		return;
+	} else {
+		dprintf(client, "500 Unknown Command\r\n");
 	}
-	dprintf(client, "500 Unknown Command\r\n");
 }
 
 int main()
@@ -426,14 +398,3 @@ int main()
 	return 0;
 }
 
-/* 
- * HELO <SP> <domain> <CRLF>
- * EHLO <SP> <domain> <CRLF>
- * MAIL <SP> FROM:<reverse-path> <CRLF>
- * RCPT <SP> TO:<forward-path> <CRLF>
- * DATA <CRLF>
- * RSET <CRLF>
- * NOOP <CRLF>
- * QUIT <CRLF>
- * VRFY <SP> <string> <CRLF>
- */
