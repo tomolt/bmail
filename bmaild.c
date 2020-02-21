@@ -266,6 +266,7 @@ void dohelo(char **ptr, int ext)
 	struct str domain;
 	mkstr(&domain, 16);
 	if (phelo(ptr, &domain)) {
+		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%.*s>.", (int) domain.len, domain.data);
 		dprintf(client, "250 %s\r\n", DOMAIN);
 	} else {
 		dprintf(client, "501 Syntax Error\r\n");
@@ -336,10 +337,8 @@ void docommand(char **ptr)
 	}
 }
 
-int main()
+void sink(void)
 {
-	openlog("bmaild", 0, LOG_MAIL);
-	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
 	if (signal(SIGALRM, timeout) == SIG_ERR) die("Can't set up timeout signal:");
 
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
@@ -394,6 +393,13 @@ int main()
 	}
 
 	close(sock);
+}
+
+int main()
+{
+	openlog("bmaild", 0, LOG_MAIL);
+	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
+	sink();
 	closelog();
 	return 0;
 }
