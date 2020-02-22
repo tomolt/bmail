@@ -12,4 +12,7 @@ clean:
 	rm -f bmaild
 
 bmaild: bmaild.o server.o smtp.o util.o
+bmaild.o: arg.h conf.h
 server.o: smtp.h util.h conf.h
+smtp.o: smtp.h util.h
+util.o: util.h

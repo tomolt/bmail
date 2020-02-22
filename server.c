@@ -1,5 +1,4 @@
 #include <syslog.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,16 +10,12 @@
 #include "smtp.h"
 #include "conf.h"
 
+#define PORT 5000
+
 enum { CHATTING, LISTENING, QUITTING };
 
 static int client;
 static int state;
-
-static void timeout(int signal)
-{
-	(void) signal;
-	close(client);
-}
 
 int phelo(char **ptr, struct str *domain)
 {
@@ -48,7 +43,7 @@ void dohelo(char **ptr, int ext)
 	mkstr(&domain, 16);
 	if (phelo(ptr, &domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%.*s>.", (int) domain.len, domain.data);
-		dprintf(client, "250 %s\r\n", DOMAIN);
+		dprintf(client, "250 %s\r\n", conf.domain);
 	} else {
 		dprintf(client, "501 Syntax Error\r\n");
 	}
@@ -109,7 +104,7 @@ void docommand(char **ptr)
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
 			state = QUITTING;
-			dprintf(client, "221 %s Bye\r\n", DOMAIN);
+			dprintf(client, "221 %s Bye\r\n", conf.domain);
 		} else {
 			dprintf(client, "501 Syntax Error\r\n");
 		}
@@ -120,8 +115,6 @@ void docommand(char **ptr)
 
 void server(void)
 {
-	if (signal(SIGALRM, timeout) == SIG_ERR) die("Can't set up timeout signal:");
-
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
 	if (sock < 0) die("Can't open port %d:", PORT);
 
@@ -138,16 +131,14 @@ void server(void)
 	for (;;) {
 		client = accept(sock, NULL, NULL);
 		/* TODO log accept errno problems? */
-		dprintf(client, "220 %s Ready\r\n", DOMAIN);
+		dprintf(client, "220 %s Ready\r\n", conf.domain);
 		state = CHATTING;
 		while (state != QUITTING) {
-			alarm(TIMEOUT);
 			struct str line;
 			if (getiline(client, &line) < 0) {
 				free(line.data);
 				break;
 			}
-			alarm(0);
 			/* TODO we need a write timeout as well! */
 			char *cur;
 			switch (state) {
