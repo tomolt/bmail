@@ -1,8 +1,10 @@
 #include <syslog.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "arg.h"
+#include "util.h"
 #include "conf.h"
 
 void server(void);
@@ -18,12 +20,14 @@ static void usage(void)
 
 int main(int argc, char *argv[])
 {
+	conf.spool = "/var/spool/mail";
 	ARGBEGIN {
 	case 'D':
 		conf.domain = EARGF(usage());
 		break;
 	case 'S':
 		conf.spool = EARGF(usage());
+		break;
 	default:
 		usage();
 	} ARGEND
@@ -32,6 +36,7 @@ int main(int argc, char *argv[])
 
 	openlog("bmaild", 0, LOG_MAIL);
 	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
+	if (chdir(conf.spool) < 0) die("Can't chdir into spool:");
 	server();
 	closelog();
 	return 0;
