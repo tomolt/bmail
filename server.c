@@ -14,8 +14,13 @@
 
 enum { CHATTING, LISTENING, QUITTING };
 
-static int client;
-static int state;
+struct session
+{
+	int socket;
+	int mode;
+};
+
+static struct session session;
 
 int phelo(char **ptr, struct str *domain)
 {
@@ -43,9 +48,9 @@ void dohelo(char **ptr, int ext)
 	mkstr(&domain, 16);
 	if (phelo(ptr, &domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%.*s>.", (int) domain.len, domain.data);
-		dprintf(client, "250 %s\r\n", conf.domain);
+		dprintf(session.socket, "250 %s\r\n", conf.domain);
 	} else {
-		dprintf(client, "501 Syntax Error\r\n");
+		dprintf(session.socket, "501 Syntax Error\r\n");
 	}
 	free(domain.data);
 }
@@ -56,9 +61,9 @@ void domail(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(ptr, &local, &domain)) {
-		dprintf(client, "250 OK\r\n");
+		dprintf(session.socket, "250 OK\r\n");
 	} else {
-		dprintf(client, "501 Syntax Error\r\n");
+		dprintf(session.socket, "501 Syntax Error\r\n");
 	}
 	free(local.data);
 	free(domain.data);
@@ -70,9 +75,9 @@ void dorcpt(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (prcpt(ptr, &local, &domain)) {
-		dprintf(client, "250 OK\r\n");
+		dprintf(session.socket, "250 OK\r\n");
 	} else {
-		dprintf(client, "501 Syntax Error\r\n");
+		dprintf(session.socket, "501 Syntax Error\r\n");
 	}
 	free(local.data);
 	free(domain.data);
@@ -90,26 +95,26 @@ void docommand(char **ptr)
 		dorcpt(ptr);
 	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
-			state = LISTENING;
-			dprintf(client, "354 Listening\r\n");
+			session.mode = LISTENING;
+			dprintf(session.socket, "354 Listening\r\n");
 		} else {
-			dprintf(client, "501 Syntax Error\r\n");
+			dprintf(session.socket, "501 Syntax Error\r\n");
 		}
 	} else if (pword(ptr, "NOOP")) {
 		if (pcrlf(ptr)) {
-			dprintf(client, "250 OK\r\n");
+			dprintf(session.socket, "250 OK\r\n");
 		} else {
-			dprintf(client, "501 Syntax Error\r\n");
+			dprintf(session.socket, "501 Syntax Error\r\n");
 		}
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
-			state = QUITTING;
-			dprintf(client, "221 %s Bye\r\n", conf.domain);
+			session.mode = QUITTING;
+			dprintf(session.socket, "221 %s Bye\r\n", conf.domain);
 		} else {
-			dprintf(client, "501 Syntax Error\r\n");
+			dprintf(session.socket, "501 Syntax Error\r\n");
 		}
 	} else {
-		dprintf(client, "500 Unknown Command\r\n");
+		dprintf(session.socket, "500 Unknown Command\r\n");
 	}
 }
 
@@ -129,19 +134,19 @@ void server(void)
 	if (s < 0) die("Can't listen on socket:");
 
 	for (;;) {
-		client = accept(sock, NULL, NULL);
+		session.socket = accept(sock, NULL, NULL);
 		/* TODO log accept errno problems? */
-		dprintf(client, "220 %s Ready\r\n", conf.domain);
-		state = CHATTING;
-		while (state != QUITTING) {
+		dprintf(session.socket, "220 %s Ready\r\n", conf.domain);
+		session.mode = CHATTING;
+		while (session.mode != QUITTING) {
 			struct str line;
-			if (getiline(client, &line) < 0) {
+			if (getiline(session.socket, &line) < 0) {
 				free(line.data);
 				break;
 			}
 			/* TODO we need a write timeout as well! */
 			char *cur;
-			switch (state) {
+			switch (session.mode) {
 			case CHATTING:
 				cur = line.data;
 				docommand(&cur);
@@ -151,8 +156,8 @@ void server(void)
 					printf("%.*s", (int) line.len, line.data);
 				} else {
 					if (line.data[1] == '\r' && line.data[2] == '\n') {
-						dprintf(client, "250 OK\r\n");
-						state = CHATTING;
+						dprintf(session.socket, "250 OK\r\n");
+						session.mode = CHATTING;
 					} else {
 						printf("%.*s", (int) line.len - 1, line.data + 1);
 					}
@@ -161,7 +166,7 @@ void server(void)
 			}
 			free(line.data);
 		}
-		close(client);
+		close(session.socket);
 	}
 
 	close(sock);
