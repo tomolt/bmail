@@ -217,14 +217,6 @@ void server(void)
 		/* TODO log accept errno problems? */
 		ereply2("220", conf.domain, "Ready");
 		for (;;) {
-			if (session.mode == QUITTING) {
-				if (session.outq.len == 0) {
-					break;
-				}
-			}
-
-			session.pfd.events = POLLIN;
-			if (session.outq.len > 0) session.pfd.events |= POLLOUT;
 			int s = poll(&session.pfd, 1, -1);
 			if (s < 0) goto endofsession;
 
@@ -239,15 +231,24 @@ void server(void)
 					char ch = session.inq.data[i];
 					if (cr && ch == '\n') {
 						doturn(session.inq);
-						if (strdeq(&session.inq, i+1) < 0) break;
+						if (strdeq(&session.inq, i+1) < 0) goto endofsession;
+						break;
 					}
 					cr = (ch == '\r');
 				}
 			}
+			
 			if (session.pfd.revents & POLLOUT) {
 				ssize_t s = write(session.socket, session.outq.data, session.outq.len);
 				if (s < 0) goto endofsession;
 				if (strdeq(&session.outq, s) < 0) goto endofsession;
+			}
+
+			session.pfd.events = POLLIN;
+			if (session.outq.len > 0) {
+				session.pfd.events |= POLLOUT;
+			} else {
+				if (session.mode == QUITTING) break;
 			}
 		}
 	endofsession:
