@@ -39,7 +39,7 @@ int initsession(int fd)
 	flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 	if (flags < 0) return -1;
 	session.pfd.fd = fd;
-	session.pfd.events = 0;
+	session.pfd.events = POLLIN | POLLOUT;
 	return 0;
 }
 
@@ -195,6 +195,23 @@ void doturn(struct str line)
 	}
 }
 
+int deqlines(void)
+{
+	char cr;
+nextline:
+	cr = 0;
+	for (size_t i = 0; i < session.inq.len; ++i) {
+		char ch = session.inq.data[i];
+		if (cr && ch == '\n') {
+			doturn(session.inq);
+			if (strdeq(&session.inq, i+1) < 0) return -1;
+			goto nextline;
+		}
+		cr = (ch == '\r');
+	}
+	return 0;
+}
+
 void server(void)
 {
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
@@ -225,17 +242,7 @@ void server(void)
 				ssize_t s = read(session.socket, buf, 128);
 				if (s < 0) goto endofsession;
 				if (strext(&session.inq, s, buf) < 0) goto endofsession;
-
-				char cr = 0;
-				for (size_t i = 0; i < session.inq.len; ++i) {
-					char ch = session.inq.data[i];
-					if (cr && ch == '\n') {
-						doturn(session.inq);
-						if (strdeq(&session.inq, i+1) < 0) goto endofsession;
-						break;
-					}
-					cr = (ch == '\r');
-				}
+				if (deqlines() < 0) goto endofsession;
 			}
 			
 			if (session.pfd.revents & POLLOUT) {
