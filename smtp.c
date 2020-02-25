@@ -5,17 +5,13 @@
 #include "util.h"
 #include "smtp.h"
 
-int getiline(int fd, struct str *str)
+int recviline(int fd, struct str *str)
 {
-	if (mkstr(str, 128) < 0) return -1;
 	char cr = 0;
 	for (;;) {
 		char ch;
 		ssize_t s = read(fd, &ch, 1);
-		if (s <= 0) {
-			free(str->data);
-			return -1;
-		}
+		if (s <= 0) return -1;
 		if (strput(str, ch) < 0) return -1;
 		if (cr && ch == '\n') return 0;
 		cr = (ch == '\r');

@@ -29,16 +29,22 @@ int mkstr(struct str *str, size_t init)
 	return 0;
 }
 
-int strput(struct str *str, char c)
+int strext(struct str *str, size_t len, char *ext)
 {
-	int idx = str->len++;
+	int idx = str->len;
+	str->len += len;
 	if (str->len > str->cap) {
 		str->cap *= 2;
 		void *mem = realloc(str->data, str->cap);
 		if (mem == NULL) return -1;
 		str->data = mem;
 	}
-	str->data[idx] = c;
+	memcpy(str->data + idx, ext, len);
 	return 0;
+}
+
+int strput(struct str *str, char c)
+{
+	return strext(str, 1, &c);
 }
 

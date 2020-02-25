@@ -1,6 +1,6 @@
 /* needs util.h */
 
-int getiline(int fd, struct str *str);
+int recviline(int fd, struct str *str);
 
 int islocalc(char c);
 int isaddrc(char c);

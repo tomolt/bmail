@@ -9,5 +9,6 @@ struct str
 
 void die(const char *fmt, ...);
 int mkstr(struct str *str, size_t init);
+int strext(struct str *str, size_t len, char *ext);
 int strput(struct str *str, char c);
 

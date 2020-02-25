@@ -1,6 +1,6 @@
 CC=clang
 LD=clang
-CFLAGS=-Wall -Wextra -pedantic
+CFLAGS=-g -Wall -Wextra -pedantic
 LDFLAGS=-g
 
 .PHONY: all clean

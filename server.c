@@ -1,6 +1,7 @@
 #include <syslog.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -16,11 +17,36 @@ enum { CHATTING, LISTENING, QUITTING };
 
 struct session
 {
+	struct str outq;
 	int socket;
 	int mode;
 };
 
 static struct session session;
+
+void ereply1(char *code, char *arg1)
+{
+	if (strext(&session.outq, strlen(code), code) < 0 ||
+		strput(&session.outq,  ' ') < 0 ||
+		strext(&session.outq, strlen(arg1), arg1) < 0 ||
+		strput(&session.outq, '\r') < 0 ||
+		strput(&session.outq, '\n') < 0) {
+		session.mode = QUITTING;
+	}
+}
+
+void ereply2(char *code, char *arg1, char *arg2)
+{
+	if (strext(&session.outq, strlen(code), code) < 0 ||
+		strput(&session.outq,  ' ') < 0 ||
+		strext(&session.outq, strlen(arg1), arg1) < 0 ||
+		strput(&session.outq,  ' ') < 0 ||
+		strext(&session.outq, strlen(arg2), arg2) < 0 ||
+		strput(&session.outq, '\r') < 0 ||
+		strput(&session.outq, '\n') < 0) {
+		session.mode = QUITTING;
+	}
+}
 
 int phelo(char **ptr, struct str *domain)
 {
@@ -47,10 +73,12 @@ void dohelo(char **ptr, int ext)
 	struct str domain;
 	mkstr(&domain, 16);
 	if (phelo(ptr, &domain)) {
-		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%.*s>.", (int) domain.len, domain.data);
-		dprintf(session.socket, "250 %s\r\n", conf.domain);
+		syslog(LOG_MAIL | LOG_INFO,
+			"Incoming connection from <%.*s>.",
+			(int) domain.len, domain.data);
+		ereply1("250", conf.domain);
 	} else {
-		dprintf(session.socket, "501 Syntax Error\r\n");
+		ereply1("501", "Syntax Error");
 	}
 	free(domain.data);
 }
@@ -61,9 +89,9 @@ void domail(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(ptr, &local, &domain)) {
-		dprintf(session.socket, "250 OK\r\n");
+		ereply1("250", "OK");
 	} else {
-		dprintf(session.socket, "501 Syntax Error\r\n");
+		ereply1("501", "Syntax Error");
 	}
 	free(local.data);
 	free(domain.data);
@@ -75,9 +103,9 @@ void dorcpt(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (prcpt(ptr, &local, &domain)) {
-		dprintf(session.socket, "250 OK\r\n");
+		ereply1("250", "OK");
 	} else {
-		dprintf(session.socket, "501 Syntax Error\r\n");
+		ereply1("501", "Syntax Error");
 	}
 	free(local.data);
 	free(domain.data);
@@ -96,25 +124,25 @@ void docommand(char **ptr)
 	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
 			session.mode = LISTENING;
-			dprintf(session.socket, "354 Listening\r\n");
+			ereply1("354", "Listening");
 		} else {
-			dprintf(session.socket, "501 Syntax Error\r\n");
+			ereply1("501", "Syntax Error");
 		}
 	} else if (pword(ptr, "NOOP")) {
 		if (pcrlf(ptr)) {
-			dprintf(session.socket, "250 OK\r\n");
+			ereply1("250", "OK");
 		} else {
-			dprintf(session.socket, "501 Syntax Error\r\n");
+			ereply1("501", "Syntax Error");
 		}
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
 			session.mode = QUITTING;
-			dprintf(session.socket, "221 %s Bye\r\n", conf.domain);
+			ereply2("221", conf.domain, "Bye");
 		} else {
-			dprintf(session.socket, "501 Syntax Error\r\n");
+			ereply1("501", "Syntax Error");
 		}
 	} else {
-		dprintf(session.socket, "500 Unknown Command\r\n");
+		ereply1("500", "Unknown Command");
 	}
 }
 
@@ -135,14 +163,28 @@ void server(void)
 
 	for (;;) {
 		session.socket = accept(sock, NULL, NULL);
-		/* TODO log accept errno problems? */
-		dprintf(session.socket, "220 %s Ready\r\n", conf.domain);
+		mkstr(&session.outq, 64); /* TODO error checking! */
 		session.mode = CHATTING;
+		/* TODO log accept errno problems? */
+		ereply2("220", conf.domain, "Ready");
 		while (session.mode != QUITTING) {
+			ssize_t s = write(session.socket, session.outq.data, session.outq.len);
+			free(session.outq.data);
+			session.outq.cap = 0;
+			session.outq.len = 0;
+			mkstr(&session.outq, 64);
+			if (s < 0) {
+				session.mode = QUITTING;
+			}
 			struct str line;
-			if (getiline(session.socket, &line) < 0) {
+			if (mkstr(&line, 128) < 0) {
+				session.mode = QUITTING;
+				continue;
+			}
+			if (recviline(session.socket, &line) < 0) {
 				free(line.data);
-				break;
+				session.mode = QUITTING;
+				continue;
 			}
 			/* TODO we need a write timeout as well! */
 			char *cur;
@@ -156,16 +198,21 @@ void server(void)
 					printf("%.*s", (int) line.len, line.data);
 				} else {
 					if (line.data[1] == '\r' && line.data[2] == '\n') {
-						dprintf(session.socket, "250 OK\r\n");
 						session.mode = CHATTING;
+						ereply1("250", "OK");
 					} else {
-						printf("%.*s", (int) line.len - 1, line.data + 1);
+						printf("%.*s", (int) line.len-1, line.data+1);
 					}
 				}
 				break;
 			}
 			free(line.data);
 		}
+		write(session.socket, session.outq.data, session.outq.len);
+		free(session.outq.data);
+		session.outq.cap = 0;
+		session.outq.len = 0;
+		mkstr(&session.outq, 64);
 		close(session.socket);
 	}
 
