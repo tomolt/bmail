@@ -15,25 +15,24 @@
 
 #define PORT 5000
 
-enum { CHATTING, LISTENING, QUITTING };
-
 struct session
 {
 	struct pollfd pfd;
 	struct str inq;
 	struct str outq;
 	int socket;
-	int mode;
+	char indata;
+	char zombie;
 };
 
 static struct session session;
 
 int initsession(int fd)
 {
+	memset(&session, 0, sizeof(session));
 	if (mkstr(&session.inq, 128) < 0) return -1;
 	if (mkstr(&session.outq, 128) < 0) return -1;
 	session.socket = fd;
-	session.mode = CHATTING;
 	int flags = fcntl(fd, F_GETFL, 0);
 	if (flags < 0) return -1;
 	flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -57,7 +56,7 @@ void ereply1(char *code, char *arg1)
 		strext(&session.outq, strlen(arg1), arg1) < 0 ||
 		strput(&session.outq, '\r') < 0 ||
 		strput(&session.outq, '\n') < 0) {
-		session.mode = QUITTING;
+		session.zombie = 1;
 	}
 }
 
@@ -70,7 +69,7 @@ void ereply2(char *code, char *arg1, char *arg2)
 		strext(&session.outq, strlen(arg2), arg2) < 0 ||
 		strput(&session.outq, '\r') < 0 ||
 		strput(&session.outq, '\n') < 0) {
-		session.mode = QUITTING;
+		session.zombie = 1;
 	}
 }
 
@@ -149,7 +148,7 @@ void docommand(char **ptr)
 		dorcpt(ptr);
 	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
-			session.mode = LISTENING;
+			session.indata = 1;
 			ereply1("354", "Listening");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -162,7 +161,7 @@ void docommand(char **ptr)
 		}
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
-			session.mode = QUITTING;
+			session.zombie = 1;
 			ereply2("221", conf.domain, "Bye");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -174,24 +173,20 @@ void docommand(char **ptr)
 
 void doturn(struct str line)
 {
-	char *cur;
-	switch (session.mode) {
-	case CHATTING:
-		cur = line.data;
-		docommand(&cur);
-		break;
-	case LISTENING:
+	if (session.indata) {
 		if (line.data[0] != '.') {
 			printf("%.*s", (int) line.len, line.data);
 		} else {
 			if (line.data[1] == '\r' && line.data[2] == '\n') {
-				session.mode = CHATTING;
+				session.indata = 0;
 				ereply1("250", "OK");
 			} else {
 				printf("%.*s", (int) line.len-1, line.data+1);
 			}
 		}
-		break;
+	} else {
+		char *cur = line.data;
+		docommand(&cur);
 	}
 }
 
@@ -235,30 +230,29 @@ void server(void)
 		ereply2("220", conf.domain, "Ready");
 		for (;;) {
 			int s = poll(&session.pfd, 1, -1);
-			if (s < 0) goto endofsession;
+			if (s < 0) break;
 
 			if (session.pfd.revents & POLLIN) {
 				char buf[128];
 				ssize_t s = read(session.socket, buf, 128);
-				if (s < 0) goto endofsession;
-				if (strext(&session.inq, s, buf) < 0) goto endofsession;
-				if (deqlines() < 0) goto endofsession;
+				if (s < 0) break;
+				if (strext(&session.inq, s, buf) < 0) break;
+				if (deqlines() < 0) break;
 			}
 			
 			if (session.pfd.revents & POLLOUT) {
 				ssize_t s = write(session.socket, session.outq.data, session.outq.len);
-				if (s < 0) goto endofsession;
-				if (strdeq(&session.outq, s) < 0) goto endofsession;
+				if (s < 0) break;
+				if (strdeq(&session.outq, s) < 0) break;
 			}
 
 			session.pfd.events = POLLIN;
 			if (session.outq.len > 0) {
 				session.pfd.events |= POLLOUT;
 			} else {
-				if (session.mode == QUITTING) break;
+				if (session.zombie) break;
 			}
 		}
-	endofsession:
 		freesession();
 	}
 
