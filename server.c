@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -17,12 +19,36 @@ enum { CHATTING, LISTENING, QUITTING };
 
 struct session
 {
+	struct pollfd pfd;
+	struct str inq;
 	struct str outq;
 	int socket;
 	int mode;
 };
 
 static struct session session;
+
+int initsession(int fd)
+{
+	if (mkstr(&session.inq, 128) < 0) return -1;
+	if (mkstr(&session.outq, 128) < 0) return -1;
+	session.socket = fd;
+	session.mode = CHATTING;
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0) return -1;
+	flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	if (flags < 0) return -1;
+	session.pfd.fd = fd;
+	session.pfd.events = 0;
+	return 0;
+}
+
+void freesession(void)
+{
+	free(session.inq.data);
+	free(session.outq.data);
+	close(session.socket);
+}
 
 void ereply1(char *code, char *arg1)
 {
@@ -146,6 +172,29 @@ void docommand(char **ptr)
 	}
 }
 
+void doturn(struct str line)
+{
+	char *cur;
+	switch (session.mode) {
+	case CHATTING:
+		cur = line.data;
+		docommand(&cur);
+		break;
+	case LISTENING:
+		if (line.data[0] != '.') {
+			printf("%.*s", (int) line.len, line.data);
+		} else {
+			if (line.data[1] == '\r' && line.data[2] == '\n') {
+				session.mode = CHATTING;
+				ereply1("250", "OK");
+			} else {
+				printf("%.*s", (int) line.len-1, line.data+1);
+			}
+		}
+		break;
+	}
+}
+
 void server(void)
 {
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
@@ -162,58 +211,47 @@ void server(void)
 	if (s < 0) die("Can't listen on socket:");
 
 	for (;;) {
-		session.socket = accept(sock, NULL, NULL);
-		mkstr(&session.outq, 64); /* TODO error checking! */
-		session.mode = CHATTING;
+		int fd = accept(sock, NULL, NULL);
+		if (fd < 0) continue;
+		if (initsession(fd) < 0) continue;
 		/* TODO log accept errno problems? */
 		ereply2("220", conf.domain, "Ready");
-		while (session.mode != QUITTING) {
-			ssize_t s = write(session.socket, session.outq.data, session.outq.len);
-			free(session.outq.data);
-			session.outq.cap = 0;
-			session.outq.len = 0;
-			mkstr(&session.outq, 64);
-			if (s < 0) {
-				session.mode = QUITTING;
-			}
-			struct str line;
-			if (mkstr(&line, 128) < 0) {
-				session.mode = QUITTING;
-				continue;
-			}
-			if (recviline(session.socket, &line) < 0) {
-				free(line.data);
-				session.mode = QUITTING;
-				continue;
-			}
-			/* TODO we need a write timeout as well! */
-			char *cur;
-			switch (session.mode) {
-			case CHATTING:
-				cur = line.data;
-				docommand(&cur);
-				break;
-			case LISTENING:
-				if (line.data[0] != '.') {
-					printf("%.*s", (int) line.len, line.data);
-				} else {
-					if (line.data[1] == '\r' && line.data[2] == '\n') {
-						session.mode = CHATTING;
-						ereply1("250", "OK");
-					} else {
-						printf("%.*s", (int) line.len-1, line.data+1);
-					}
+		for (;;) {
+			if (session.mode == QUITTING) {
+				if (session.outq.len == 0) {
+					break;
 				}
-				break;
 			}
-			free(line.data);
+
+			session.pfd.events = POLLIN;
+			if (session.outq.len > 0) session.pfd.events |= POLLOUT;
+			int s = poll(&session.pfd, 1, -1);
+			if (s < 0) goto endofsession;
+
+			if (session.pfd.revents & POLLIN) {
+				char buf[128];
+				ssize_t s = read(session.socket, buf, 128);
+				if (s < 0) goto endofsession;
+				if (strext(&session.inq, s, buf) < 0) goto endofsession;
+
+				char cr = 0;
+				for (size_t i = 0; i < session.inq.len; ++i) {
+					char ch = session.inq.data[i];
+					if (cr && ch == '\n') {
+						doturn(session.inq);
+						if (strdeq(&session.inq, i+1) < 0) break;
+					}
+					cr = (ch == '\r');
+				}
+			}
+			if (session.pfd.revents & POLLOUT) {
+				ssize_t s = write(session.socket, session.outq.data, session.outq.len);
+				if (s < 0) goto endofsession;
+				if (strdeq(&session.outq, s) < 0) goto endofsession;
+			}
 		}
-		write(session.socket, session.outq.data, session.outq.len);
-		free(session.outq.data);
-		session.outq.cap = 0;
-		session.outq.len = 0;
-		mkstr(&session.outq, 64);
-		close(session.socket);
+	endofsession:
+		freesession();
 	}
 
 	close(sock);

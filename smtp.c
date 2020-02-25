@@ -5,19 +5,6 @@
 #include "util.h"
 #include "smtp.h"
 
-int recviline(int fd, struct str *str)
-{
-	char cr = 0;
-	for (;;) {
-		char ch;
-		ssize_t s = read(fd, &ch, 1);
-		if (s <= 0) return -1;
-		if (strput(str, ch) < 0) return -1;
-		if (cr && ch == '\n') return 0;
-		cr = (ch == '\r');
-	}
-}
-
 int islocalc(char c)
 {
 	/* !#$%&'*+-./09=?AZ^_`az{|}~ */

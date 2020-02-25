@@ -1,7 +1,5 @@
 /* needs util.h */
 
-int recviline(int fd, struct str *str);
-
 int islocalc(char c);
 int isaddrc(char c);
 int isdomainc(char c);
