@@ -48,16 +48,16 @@ int strput(struct str *str, char c)
 	return strext(str, 1, &c);
 }
 
-int strdeq(struct str *str, size_t len)
+void strdeq(struct str *str, size_t len)
 {
 	str->len -= len;
 	memmove(str->data, str->data-len, str->len);
-	while (str->cap > str->len * 2 && str->cap > 16) {
-		str->cap /= 2;
-		void *mem = realloc(str->data, str->cap);
-		if (mem == NULL) return -1;
-		str->data = mem;
-	}
-	return 0;
+	size_t cap = str->cap;
+	while (cap > 2 * str->len && cap > 16) cap /= 2;
+	if (str->cap == cap) return;
+	void *mem = realloc(str->data, cap);
+	if (mem == NULL) return;
+	str->cap = cap;
+	str->data = mem;
 }
 

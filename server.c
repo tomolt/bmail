@@ -24,9 +24,50 @@ struct session
 	int socket;
 	char indata;
 	char zombie;
+	char dead;
 };
 
 static struct session session;
+
+void ioerr(const char *func)
+{
+	switch (errno) {
+	case EINTR: case EAGAIN:
+#if EAGAIN != EWOULDBLOCK
+	case EWOULDBLOCK:
+#endif
+	case ECONNABORTED:
+		break;
+	case EMFILE: case ENFILE:
+		syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
+		break;
+	case ENOBUFS: case ENOMEM:
+		syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+		break;
+	case ENETDOWN: case ENETUNREACH:
+		syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
+		break;
+	default:
+		syslog(LOG_MAIL | LOG_CRIT, "Bug: %s:", func);
+		syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+		break;
+	}
+}
+
+void sioerr(const char *func)
+{
+	switch (errno) {
+	case EPIPE:
+		session.zombie = 1;
+		break;
+	case ECONNRESET: case ETIMEDOUT:
+		session.dead = 1;
+		break;
+	default:
+		ioerr(func);
+		break;
+	}
+}
 
 int initsession(int fd)
 {
@@ -191,7 +232,7 @@ void doturn(struct str line)
 	}
 }
 
-int deqlines(void)
+void deqlines(void)
 {
 	char cr;
 nextline:
@@ -200,12 +241,11 @@ nextline:
 		char ch = session.inq.data[i];
 		if (cr && ch == '\n') {
 			doturn(session.inq);
-			if (strdeq(&session.inq, i+1) < 0) return -1;
+			strdeq(&session.inq, i+1);
 			goto nextline;
 		}
 		cr = (ch == '\r');
 	}
-	return 0;
 }
 
 void server(void)
@@ -236,86 +276,29 @@ void server(void)
 	for (;;) {
 		int s = poll(pollfds, 1, -1);
 		if (s < 0) {
-			switch (errno) {
-			case EINTR:
-				break;
-			case ENOMEM: case EAGAIN:
-				syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-				break;
-			default:
-				syslog(LOG_MAIL | LOG_CRIT, "Bug: poll:");
-				syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-				break;
-			}
+			ioerr("poll");
 			continue;
 		}
 		s = accept(sock, NULL, NULL);
 		if (s < 0) {
-			switch (errno) {
-			case EINTR: case EWOULDBLOCK:
-#		if EAGAIN != EWOULDBLOCK
-			case EAGAIN:
-#		endif
-			case ECONNABORTED:
-				break;
-			case EMFILE: case ENFILE:
-				syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
-				break;
-			case ENOBUFS: case ENOMEM:
-				syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-				break;
-			default:
-				syslog(LOG_MAIL | LOG_CRIT, "Bug: accept:");
-				syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-				break;
-			}
+			ioerr("accept");
 			continue;
 		}
 		if (initsession(s) < 0) continue;
 		ereply2("220", conf.domain, "Ready");
-		for (;;) {
+		while (!session.dead) {
 			int s = poll(&session.pfd, 1, -1);
 			if (s < 0) {
-				switch (errno) {
-				case EINTR:
-					break;
-				case ENOMEM: case EAGAIN:
-					syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-					break;
-				default:
-					syslog(LOG_MAIL | LOG_CRIT, "Bug: poll:");
-					syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-					break;
-				}
+				ioerr("poll");
 			} else {
 				if (session.pfd.revents & POLLIN) {
 					char buf[128];
 					ssize_t s = read(session.socket, buf, 128);
 					if (s < 0) {
-						switch (errno) {
-						case EINTR: case EWOULDBLOCK:
-#					if EAGAIN != EWOULDBLOCK
-						case EAGAIN:
-#					endif
-							break;
-						case ECONNRESET:
-							/* FIXME hard kill session */
-							session.zombie = 1;
-							break;
-						case EPIPE: case ETIMEDOUT:
-							session.zombie = 1;
-							break;
-						case ENOBUFS: case ENOMEM:
-							syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-							break;
-						default:
-							syslog(LOG_MAIL | LOG_CRIT, "Bug: read:");
-							syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-							break;
-						}
+						sioerr("read");
 					} else if (s > 0) {
 						if (strext(&session.inq, s, buf) < 0) session.zombie = 1;
-						if (deqlines() < 0) session.zombie = 1;
+						deqlines();
 					} else {
 						session.zombie = 1;
 					}
@@ -324,44 +307,17 @@ void server(void)
 				if (session.pfd.revents & POLLOUT) {
 					ssize_t s = write(session.socket, session.outq.data, session.outq.len);
 					if (s < 0) {
-						switch (errno) {
-						case EINTR: case EWOULDBLOCK:
-#					if EAGAIN != EWOULDBLOCK
-						case EAGAIN:
-#					endif
-							break;
-						case ECONNRESET:
-							/* FIXME hard kill session */
-							session.zombie = 1;
-							break;
-						case EPIPE:
-							/* FIXME hard kill session */
-							session.zombie = 1;
-							break;
-						case ENOBUFS: case ENOMEM:
-							syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-							break;
-						case ENETDOWN: case ENETUNREACH:
-							syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
-							break;
-						default:
-							syslog(LOG_MAIL | LOG_CRIT, "Bug: write:");
-							syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-							break;
-						}
+						sioerr("write");
 					} else {
-						if (strdeq(&session.outq, s) < 0) {
-							/* FIXME hard kill session */
-							session.zombie = 1;
-						}
+						strdeq(&session.outq, s);
 					}
 				}
 
-				session.pfd.events = POLLIN;
+				if (!session.zombie) session.pfd.events = POLLIN;
 				if (session.outq.len > 0) {
 					session.pfd.events |= POLLOUT;
 				} else {
-					if (session.zombie) break;
+					if (session.zombie) session.dead = 1;
 				}
 			}
 		}
