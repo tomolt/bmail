@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <errno.h>
 
 #include "util.h"
 #include "smtp.h"
@@ -230,27 +231,97 @@ void server(void)
 		ereply2("220", conf.domain, "Ready");
 		for (;;) {
 			int s = poll(&session.pfd, 1, -1);
-			if (s < 0) break;
-
-			if (session.pfd.revents & POLLIN) {
-				char buf[128];
-				ssize_t s = read(session.socket, buf, 128);
-				if (s < 0) break;
-				if (strext(&session.inq, s, buf) < 0) break;
-				if (deqlines() < 0) break;
-			}
-			
-			if (session.pfd.revents & POLLOUT) {
-				ssize_t s = write(session.socket, session.outq.data, session.outq.len);
-				if (s < 0) break;
-				if (strdeq(&session.outq, s) < 0) break;
-			}
-
-			session.pfd.events = POLLIN;
-			if (session.outq.len > 0) {
-				session.pfd.events |= POLLOUT;
+			if (s < 0) {
+				switch (errno) {
+				case EINTR:
+					break;
+				case EINVAL:
+					syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
+					break;
+				case ENOMEM: case EAGAIN:
+					syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+					break;
+				default:
+					syslog(LOG_MAIL | LOG_CRIT, "Bug: poll:");
+					syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+					break;
+				}
 			} else {
-				if (session.zombie) break;
+				if (session.pfd.revents & POLLIN) {
+					char buf[128];
+					ssize_t s = read(session.socket, buf, 128);
+					if (s < 0) {
+						switch (errno) {
+						case EINTR: case EWOULDBLOCK:
+#					if EAGAIN != EWOULDBLOCK
+						case EAGAIN:
+#					endif
+							break;
+						case ECONNRESET:
+							/* FIXME hard kill session */
+							session.zombie = 1;
+							break;
+						case EPIPE: case ETIMEDOUT:
+							session.zombie = 1;
+							break;
+						case ENOBUFS: case ENOMEM:
+							syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+							break;
+						default:
+							syslog(LOG_MAIL | LOG_CRIT, "Bug: read:");
+							syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+							break;
+						}
+					} else if (s > 0) {
+						if (strext(&session.inq, s, buf) < 0) session.zombie = 1;
+						if (deqlines() < 0) session.zombie = 1;
+					} else {
+						session.zombie = 1;
+					}
+				}
+				
+				if (session.pfd.revents & POLLOUT) {
+					ssize_t s = write(session.socket, session.outq.data, session.outq.len);
+					if (s < 0) {
+						switch (errno) {
+						case EINTR: case EWOULDBLOCK:
+#					if EAGAIN != EWOULDBLOCK
+						case EAGAIN:
+#					endif
+							break;
+						case ECONNRESET:
+							/* FIXME hard kill session */
+							session.zombie = 1;
+							break;
+						case EPIPE:
+							/* FIXME hard kill session */
+							session.zombie = 1;
+							break;
+						case ENOBUFS: case ENOMEM:
+							syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+							break;
+						case ENETDOWN: case ENETUNREACH:
+							syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
+							break;
+						default:
+							syslog(LOG_MAIL | LOG_CRIT, "Bug: write:");
+							syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+							break;
+						}
+					} else {
+						if (strdeq(&session.outq, s) < 0) {
+							/* FIXME hard kill session */
+							session.zombie = 1;
+						}
+					}
+				}
+
+				session.pfd.events = POLLIN;
+				if (session.outq.len > 0) {
+					session.pfd.events |= POLLOUT;
+				} else {
+					if (session.zombie) break;
+				}
 			}
 		}
 		freesession();
