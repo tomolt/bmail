@@ -223,20 +223,61 @@ void server(void)
 	s = listen(sock, 1);
 	if (s < 0) die("Can't listen on socket:");
 
+	int flags = fcntl(sock, F_GETFL, 0);
+	if (flags < 0) die("Can't read socket flags:");
+	flags = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+	if (flags < 0) die("Can't switch socket to non-blocking:");
+
+	struct pollfd pollfds[1];
+	memset(pollfds, 0, sizeof(pollfds));
+	pollfds[0].fd = sock;
+	pollfds[0].events = POLLIN;
+
 	for (;;) {
-		int fd = accept(sock, NULL, NULL);
-		if (fd < 0) continue;
-		if (initsession(fd) < 0) continue;
-		/* TODO log accept errno problems? */
+		int s = poll(pollfds, 1, -1);
+		if (s < 0) {
+			switch (errno) {
+			case EINTR:
+				break;
+			case ENOMEM: case EAGAIN:
+				syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+				break;
+			default:
+				syslog(LOG_MAIL | LOG_CRIT, "Bug: poll:");
+				syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+				break;
+			}
+			continue;
+		}
+		s = accept(sock, NULL, NULL);
+		if (s < 0) {
+			switch (errno) {
+			case EINTR: case EWOULDBLOCK:
+#		if EAGAIN != EWOULDBLOCK
+			case EAGAIN:
+#		endif
+			case ECONNABORTED:
+				break;
+			case EMFILE: case ENFILE:
+				syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
+				break;
+			case ENOBUFS: case ENOMEM:
+				syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+				break;
+			default:
+				syslog(LOG_MAIL | LOG_CRIT, "Bug: accept:");
+				syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+				break;
+			}
+			continue;
+		}
+		if (initsession(s) < 0) continue;
 		ereply2("220", conf.domain, "Ready");
 		for (;;) {
 			int s = poll(&session.pfd, 1, -1);
 			if (s < 0) {
 				switch (errno) {
 				case EINTR:
-					break;
-				case EINVAL:
-					syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
 					break;
 				case ENOMEM: case EAGAIN:
 					syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
