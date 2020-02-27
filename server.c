@@ -16,15 +16,17 @@
 
 #define PORT 5000
 
+#define INDATA 0x01
+#define ZOMBIE 0x02
+#define DEAD   0x04
+
 struct session
 {
 	struct pollfd pfd;
 	struct str inq;
 	struct str outq;
 	int socket;
-	char indata;
-	char zombie;
-	char dead;
+	int flags;
 };
 
 static struct session session;
@@ -58,10 +60,10 @@ void sioerr(const char *func)
 {
 	switch (errno) {
 	case EPIPE:
-		session.zombie = 1;
+		session.flags |= ZOMBIE;
 		break;
 	case ECONNRESET: case ETIMEDOUT:
-		session.dead = 1;
+		session.flags |= DEAD;
 		break;
 	default:
 		ioerr(func);
@@ -98,7 +100,7 @@ void ereply1(char *code, char *arg1)
 		strext(&session.outq, strlen(arg1), arg1) < 0 ||
 		strput(&session.outq, '\r') < 0 ||
 		strput(&session.outq, '\n') < 0) {
-		session.zombie = 1;
+		session.flags |= ZOMBIE;
 	}
 }
 
@@ -111,7 +113,7 @@ void ereply2(char *code, char *arg1, char *arg2)
 		strext(&session.outq, strlen(arg2), arg2) < 0 ||
 		strput(&session.outq, '\r') < 0 ||
 		strput(&session.outq, '\n') < 0) {
-		session.zombie = 1;
+		session.flags |= ZOMBIE;
 	}
 }
 
@@ -190,7 +192,7 @@ void docommand(char **ptr)
 		dorcpt(ptr);
 	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
-			session.indata = 1;
+			session.flags |= INDATA;
 			ereply1("354", "Listening");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -203,7 +205,7 @@ void docommand(char **ptr)
 		}
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
-			session.zombie = 1;
+			session.flags |= ZOMBIE;
 			ereply2("221", conf.domain, "Bye");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -215,12 +217,12 @@ void docommand(char **ptr)
 
 void doturn(struct str line)
 {
-	if (session.indata) {
+	if (session.flags & INDATA) {
 		if (line.data[0] != '.') {
 			printf("%.*s", (int) line.len, line.data);
 		} else {
 			if (line.data[1] == '\r' && line.data[2] == '\n') {
-				session.indata = 0;
+				session.flags &= ~INDATA;
 				ereply1("250", "OK");
 			} else {
 				printf("%.*s", (int) line.len-1, line.data+1);
@@ -286,7 +288,7 @@ void server(void)
 		}
 		if (initsession(s) < 0) continue;
 		ereply2("220", conf.domain, "Ready");
-		while (!session.dead) {
+		while (!(session.flags & DEAD)) {
 			int s = poll(&session.pfd, 1, -1);
 			if (s < 0) {
 				ioerr("poll");
@@ -297,10 +299,10 @@ void server(void)
 					if (s < 0) {
 						sioerr("read");
 					} else if (s > 0) {
-						if (strext(&session.inq, s, buf) < 0) session.zombie = 1;
+						if (strext(&session.inq, s, buf) < 0) session.flags |= ZOMBIE;
 						deqlines();
 					} else {
-						session.zombie = 1;
+						session.flags |= ZOMBIE;
 					}
 				}
 				
@@ -313,11 +315,11 @@ void server(void)
 					}
 				}
 
-				if (!session.zombie) session.pfd.events = POLLIN;
+				if (!(session.flags & ZOMBIE)) session.pfd.events = POLLIN;
 				if (session.outq.len > 0) {
 					session.pfd.events |= POLLOUT;
 				} else {
-					if (session.zombie) session.dead = 1;
+					if (session.flags & ZOMBIE) session.flags |= DEAD;
 				}
 			}
 		}
