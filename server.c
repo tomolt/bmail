@@ -25,6 +25,8 @@ struct session
 	struct pollfd pfd;
 	struct str inq;
 	struct str outq;
+	struct str sender_local;
+	struct str sender_domain;
 	int socket;
 	int flags;
 };
@@ -90,6 +92,8 @@ void freesession(void)
 {
 	free(session.inq.data);
 	free(session.outq.data);
+	free(session.sender_local);
+	free(session.sender_domain);
 	close(session.socket);
 }
 
@@ -154,20 +158,32 @@ void dohelo(char **ptr, int ext)
 
 void domail(char **ptr)
 {
+	if (session.sender_domain.len > 0) {
+		ereply1("503", "Bad Sequence");
+		return;
+	}
 	struct str local, domain;
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(ptr, &local, &domain)) {
+		free(session.sender_local.data);
+		free(session.sender_domain.data);
+		session.sender_local = local;
+		session.sender_domain = domain;
 		ereply1("250", "OK");
 	} else {
+		free(local.data);
+		free(domain.data);
 		ereply1("501", "Syntax Error");
 	}
-	free(local.data);
-	free(domain.data);
 }
 
 void dorcpt(char **ptr)
 {
+	if (session.sender_domain.len == 0) {
+		ereply1("503", "Bad Sequence");
+		return;
+	}
 	struct str local, domain;
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
@@ -199,6 +215,13 @@ void docommand(char **ptr)
 		}
 	} else if (pword(ptr, "NOOP")) {
 		if (pcrlf(ptr)) {
+			ereply1("250", "OK");
+		} else {
+			ereply1("501", "Syntax Error");
+		}
+	} else if (pword(ptr, "RSET")) {
+		if (pcrlf(ptr)) {
+			free(session.sender_domain.data);
 			ereply1("250", "OK");
 		} else {
 			ereply1("501", "Syntax Error");
