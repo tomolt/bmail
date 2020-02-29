@@ -22,6 +22,31 @@ void die(const char *fmt, ...)
 	exit(1);
 }
 
+void ioerr(const char *func)
+{
+	switch (errno) {
+	case EINTR: case EAGAIN:
+#if EAGAIN != EWOULDBLOCK
+	case EWOULDBLOCK:
+#endif
+	case ECONNABORTED:
+		break;
+	case EMFILE: case ENFILE:
+		syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
+		break;
+	case ENOBUFS: case ENOMEM:
+		syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+		break;
+	case ENETDOWN: case ENETUNREACH:
+		syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
+		break;
+	default:
+		syslog(LOG_MAIL | LOG_CRIT, "Bug: %s:", func);
+		syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+		break;
+	}
+}
+
 int mkstr(struct str *str, size_t init)
 {
 	str->len = 0;

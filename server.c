@@ -40,32 +40,6 @@ struct session
 
 static struct session session;
 
-/* Handle common errno values in the case of an I/O error. */
-void ioerr(const char *func)
-{
-	switch (errno) {
-	case EINTR: case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-	case EWOULDBLOCK:
-#endif
-	case ECONNABORTED:
-		break;
-	case EMFILE: case ENFILE:
-		syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
-		break;
-	case ENOBUFS: case ENOMEM:
-		syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
-		break;
-	case ENETDOWN: case ENETUNREACH:
-		syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
-		break;
-	default:
-		syslog(LOG_MAIL | LOG_CRIT, "Bug: %s:", func);
-		syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
-		break;
-	}
-}
-
 /* Session-specific handling of I/O errors. */
 void sioerr(const char *func)
 {
@@ -99,10 +73,10 @@ int initsession(int fd)
 
 void freesession(void)
 {
-	free(session.inq.data);
-	free(session.outq.data);
-	free(session.sender_local);
-	free(session.sender_domain);
+	clrstr(&session.inq);
+	clrstr(&session.outq);
+	clrstr(&session.sender_local);
+	clrstr(&session.sender_domain);
 	close(session.socket);
 }
 
@@ -164,7 +138,7 @@ void dohelo(char **ptr, int ext)
 	} else {
 		ereply1("501", "Syntax Error");
 	}
-	free(domain.data);
+	clrstr(&domain);
 }
 
 void domail(char **ptr)
@@ -177,14 +151,14 @@ void domail(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(ptr, &local, &domain)) {
-		free(session.sender_local.data);
-		free(session.sender_domain.data);
+		clrstr(&session.sender_local);
+		clrstr(&session.sender_domain);
 		session.sender_local = local;
 		session.sender_domain = domain;
 		ereply1("250", "OK");
 	} else {
-		free(local.data);
-		free(domain.data);
+		clrstr(&local);
+		clrstr(&domain);
 		ereply1("501", "Syntax Error");
 	}
 }

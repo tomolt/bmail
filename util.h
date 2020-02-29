@@ -3,6 +3,8 @@
 /* needs stddef.h */
 
 void die(const char *fmt, ...);
+/* Handle common errno values in the case of an I/O error. */
+void ioerr(const char *func);
 
 /* struct str is a helper struct for dynamically-allocated strings.
  * These strings keep track of their own length and as such are not NUL-terminated. */
