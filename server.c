@@ -82,6 +82,31 @@ void freesession(void)
 	close(csession->socket);
 }
 
+void sread(void)
+{
+	char buf[128];
+	ssize_t s = read(csession->socket, buf, 128);
+	if (s < 0) {
+		sioerr("read");
+	} else if (s == 0) {
+		csession->flags |= ZOMBIE;
+	} else {
+		if (strext(&csession->inq, s, buf) < 0) {
+			csession->flags |= ZOMBIE;
+		}
+	}
+}
+
+void swrite(void)
+{
+	ssize_t s = write(csession->socket, csession->outq.data, csession->outq.len);
+	if (s < 0) {
+		sioerr("write");
+	} else {
+		strdeq(&csession->outq, s);
+	}
+}
+
 void ereply1(char *code, char *arg1)
 {
 	if (strext(&csession->outq, strlen(code), code) < 0 ||
@@ -306,25 +331,12 @@ void server(void)
 				ioerr("poll");
 			} else {
 				if (csession->pfd.revents & POLLIN) {
-					char buf[128];
-					ssize_t s = read(csession->socket, buf, 128);
-					if (s < 0) {
-						sioerr("read");
-					} else if (s > 0) {
-						if (strext(&csession->inq, s, buf) < 0) csession->flags |= ZOMBIE;
-						deqlines();
-					} else {
-						csession->flags |= ZOMBIE;
-					}
+					sread();
+					deqlines();
 				}
 				
 				if (csession->pfd.revents & POLLOUT) {
-					ssize_t s = write(csession->socket, csession->outq.data, csession->outq.len);
-					if (s < 0) {
-						sioerr("write");
-					} else {
-						strdeq(&csession->outq, s);
-					}
+					swrite();
 				}
 
 				if (!(csession->flags & ZOMBIE)) csession->pfd.events = POLLIN;
