@@ -38,17 +38,19 @@ struct session
 	int flags;
 };
 
-static struct session session;
+static struct session bsession;
+/* Pointer to the currently active session. */
+static struct session *csession = &bsession;
 
 /* Session-specific handling of I/O errors. */
 void sioerr(const char *func)
 {
 	switch (errno) {
 	case EPIPE:
-		session.flags |= ZOMBIE;
+		csession->flags |= ZOMBIE;
 		break;
 	case ECONNRESET: case ETIMEDOUT:
-		session.flags |= DEAD;
+		csession->flags |= DEAD;
 		break;
 	default:
 		ioerr(func);
@@ -58,49 +60,49 @@ void sioerr(const char *func)
 
 int initsession(int fd)
 {
-	memset(&session, 0, sizeof(session));
-	if (mkstr(&session.inq, 128) < 0) return -1;
-	if (mkstr(&session.outq, 128) < 0) return -1;
-	session.socket = fd;
+	memset(csession, 0, sizeof(struct session));
+	if (mkstr(&csession->inq, 128) < 0) return -1;
+	if (mkstr(&csession->outq, 128) < 0) return -1;
+	csession->socket = fd;
 	int flags = fcntl(fd, F_GETFL, 0);
 	if (flags < 0) return -1;
 	flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 	if (flags < 0) return -1;
-	session.pfd.fd = fd;
-	session.pfd.events = POLLIN | POLLOUT;
+	csession->pfd.fd = fd;
+	csession->pfd.events = POLLIN | POLLOUT;
 	return 0;
 }
 
 void freesession(void)
 {
-	clrstr(&session.inq);
-	clrstr(&session.outq);
-	clrstr(&session.sender_local);
-	clrstr(&session.sender_domain);
-	close(session.socket);
+	clrstr(&csession->inq);
+	clrstr(&csession->outq);
+	clrstr(&csession->sender_local);
+	clrstr(&csession->sender_domain);
+	close(csession->socket);
 }
 
 void ereply1(char *code, char *arg1)
 {
-	if (strext(&session.outq, strlen(code), code) < 0 ||
-		strput(&session.outq,  ' ') < 0 ||
-		strext(&session.outq, strlen(arg1), arg1) < 0 ||
-		strput(&session.outq, '\r') < 0 ||
-		strput(&session.outq, '\n') < 0) {
-		session.flags |= ZOMBIE;
+	if (strext(&csession->outq, strlen(code), code) < 0 ||
+		strput(&csession->outq,  ' ') < 0 ||
+		strext(&csession->outq, strlen(arg1), arg1) < 0 ||
+		strput(&csession->outq, '\r') < 0 ||
+		strput(&csession->outq, '\n') < 0) {
+		csession->flags |= ZOMBIE;
 	}
 }
 
 void ereply2(char *code, char *arg1, char *arg2)
 {
-	if (strext(&session.outq, strlen(code), code) < 0 ||
-		strput(&session.outq,  ' ') < 0 ||
-		strext(&session.outq, strlen(arg1), arg1) < 0 ||
-		strput(&session.outq,  ' ') < 0 ||
-		strext(&session.outq, strlen(arg2), arg2) < 0 ||
-		strput(&session.outq, '\r') < 0 ||
-		strput(&session.outq, '\n') < 0) {
-		session.flags |= ZOMBIE;
+	if (strext(&csession->outq, strlen(code), code) < 0 ||
+		strput(&csession->outq,  ' ') < 0 ||
+		strext(&csession->outq, strlen(arg1), arg1) < 0 ||
+		strput(&csession->outq,  ' ') < 0 ||
+		strext(&csession->outq, strlen(arg2), arg2) < 0 ||
+		strput(&csession->outq, '\r') < 0 ||
+		strput(&csession->outq, '\n') < 0) {
+		csession->flags |= ZOMBIE;
 	}
 }
 
@@ -143,7 +145,7 @@ void dohelo(char **ptr, int ext)
 
 void domail(char **ptr)
 {
-	if (session.sender_domain.len > 0) {
+	if (csession->sender_domain.len > 0) {
 		ereply1("503", "Bad Sequence");
 		return;
 	}
@@ -151,10 +153,10 @@ void domail(char **ptr)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(ptr, &local, &domain)) {
-		clrstr(&session.sender_local);
-		clrstr(&session.sender_domain);
-		session.sender_local = local;
-		session.sender_domain = domain;
+		clrstr(&csession->sender_local);
+		clrstr(&csession->sender_domain);
+		csession->sender_local = local;
+		csession->sender_domain = domain;
 		ereply1("250", "OK");
 	} else {
 		clrstr(&local);
@@ -165,7 +167,7 @@ void domail(char **ptr)
 
 void dorcpt(char **ptr)
 {
-	if (session.sender_domain.len == 0) {
+	if (csession->sender_domain.len == 0) {
 		ereply1("503", "Bad Sequence");
 		return;
 	}
@@ -193,7 +195,7 @@ void docommand(char **ptr)
 		dorcpt(ptr);
 	} else if (pword(ptr, "DATA")) {
 		if (pcrlf(ptr)) {
-			session.flags |= INDATA;
+			csession->flags |= INDATA;
 			ereply1("354", "Listening");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -206,14 +208,14 @@ void docommand(char **ptr)
 		}
 	} else if (pword(ptr, "RSET")) {
 		if (pcrlf(ptr)) {
-			free(session.sender_domain.data);
+			free(csession->sender_domain.data);
 			ereply1("250", "OK");
 		} else {
 			ereply1("501", "Syntax Error");
 		}
 	} else if (pword(ptr, "QUIT")) {
 		if (pcrlf(ptr)) {
-			session.flags |= ZOMBIE;
+			csession->flags |= ZOMBIE;
 			ereply2("221", conf.domain, "Bye");
 		} else {
 			ereply1("501", "Syntax Error");
@@ -225,12 +227,12 @@ void docommand(char **ptr)
 
 void doturn(struct str line)
 {
-	if (session.flags & INDATA) {
+	if (csession->flags & INDATA) {
 		if (line.data[0] != '.') {
 			printf("%.*s", (int) line.len, line.data);
 		} else {
 			if (line.data[1] == '\r' && line.data[2] == '\n') {
-				session.flags &= ~INDATA;
+				csession->flags &= ~INDATA;
 				ereply1("250", "OK");
 			} else {
 				printf("%.*s", (int) line.len-1, line.data+1);
@@ -247,11 +249,11 @@ void deqlines(void)
 	char cr;
 nextline:
 	cr = 0;
-	for (size_t i = 0; i < session.inq.len; ++i) {
-		char ch = session.inq.data[i];
+	for (size_t i = 0; i < csession->inq.len; ++i) {
+		char ch = csession->inq.data[i];
 		if (cr && ch == '\n') {
-			doturn(session.inq);
-			strdeq(&session.inq, i+1);
+			doturn(csession->inq);
+			strdeq(&csession->inq, i+1);
 			goto nextline;
 		}
 		cr = (ch == '\r');
@@ -297,38 +299,38 @@ void server(void)
 		}
 		if (initsession(s) < 0) continue;
 		ereply2("220", conf.domain, "Ready");
-		while (!(session.flags & DEAD)) {
-			int s = poll(&session.pfd, 1, -1);
+		while (!(csession->flags & DEAD)) {
+			int s = poll(&csession->pfd, 1, -1);
 			if (s < 0) {
 				ioerr("poll");
 			} else {
-				if (session.pfd.revents & POLLIN) {
+				if (csession->pfd.revents & POLLIN) {
 					char buf[128];
-					ssize_t s = read(session.socket, buf, 128);
+					ssize_t s = read(csession->socket, buf, 128);
 					if (s < 0) {
 						sioerr("read");
 					} else if (s > 0) {
-						if (strext(&session.inq, s, buf) < 0) session.flags |= ZOMBIE;
+						if (strext(&csession->inq, s, buf) < 0) csession->flags |= ZOMBIE;
 						deqlines();
 					} else {
-						session.flags |= ZOMBIE;
+						csession->flags |= ZOMBIE;
 					}
 				}
 				
-				if (session.pfd.revents & POLLOUT) {
-					ssize_t s = write(session.socket, session.outq.data, session.outq.len);
+				if (csession->pfd.revents & POLLOUT) {
+					ssize_t s = write(csession->socket, csession->outq.data, csession->outq.len);
 					if (s < 0) {
 						sioerr("write");
 					} else {
-						strdeq(&session.outq, s);
+						strdeq(&csession->outq, s);
 					}
 				}
 
-				if (!(session.flags & ZOMBIE)) session.pfd.events = POLLIN;
-				if (session.outq.len > 0) {
-					session.pfd.events |= POLLOUT;
+				if (!(csession->flags & ZOMBIE)) csession->pfd.events = POLLIN;
+				if (csession->outq.len > 0) {
+					csession->pfd.events |= POLLOUT;
 				} else {
-					if (session.flags & ZOMBIE) session.flags |= DEAD;
+					if (csession->flags & ZOMBIE) csession->flags |= DEAD;
 				}
 			}
 		}
