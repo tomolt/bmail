@@ -1,3 +1,5 @@
+/* See LICENSE file for copyright and license details. */
+
 /* needs util.h */
 
 /* Is c a valid character in the local part of an e-mail address? */

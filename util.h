@@ -1,3 +1,5 @@
+/* See LICENSE file for copyright and license details. */
+
 /* needs stddef.h */
 
 void die(const char *fmt, ...);
