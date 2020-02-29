@@ -108,31 +108,31 @@ void ereply2(char *code, char *arg1, char *arg2)
 
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
-int phelo(char **ptr, struct str *domain)
+int phelo(struct str *domain)
 {
-	return pchar(ptr, ' ') && pdomain(ptr, domain) && pcrlf(ptr);
+	return pchar(' ') && pdomain(domain) && pcrlf();
 }
 
-int pmail(char **ptr, struct str *local, struct str *domain)
+int pmail(struct str *local, struct str *domain)
 {
-	int s =  pchar(ptr, ' ') && pword(ptr, "FROM") && pchar(ptr, ':');
-	s = s && pchar(ptr, '<') && pmailbox(ptr, local, domain) && pchar(ptr, '>');
-	return   pcrlf(ptr);
+	int s =  pchar(' ') && pword("FROM") && pchar(':');
+	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
+	return   pcrlf();
 }
 
-int prcpt(char **ptr, struct str *local, struct str *domain)
+int prcpt(struct str *local, struct str *domain)
 {
-	int s =  pchar(ptr, ' ') && pword(ptr, "TO") && pchar(ptr, ':');
-	s = s && pchar(ptr, '<') && pmailbox(ptr, local, domain) && pchar(ptr, '>');
-	return   pcrlf(ptr);
+	int s =  pchar(' ') && pword("TO") && pchar(':');
+	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
+	return   pcrlf();
 }
 
-void dohelo(char **ptr, int ext)
+void dohelo(int ext)
 {
 	(void) ext;
 	struct str domain;
 	mkstr(&domain, 16);
-	if (phelo(ptr, &domain)) {
+	if (phelo(&domain)) {
 		syslog(LOG_MAIL | LOG_INFO,
 			"Incoming connection from <%.*s>.",
 			(int) domain.len, domain.data);
@@ -143,7 +143,7 @@ void dohelo(char **ptr, int ext)
 	clrstr(&domain);
 }
 
-void domail(char **ptr)
+void domail(void)
 {
 	if (csession->sender_domain.len > 0) {
 		ereply1("503", "Bad Sequence");
@@ -152,7 +152,7 @@ void domail(char **ptr)
 	struct str local, domain;
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
-	if (pmail(ptr, &local, &domain)) {
+	if (pmail(&local, &domain)) {
 		clrstr(&csession->sender_local);
 		clrstr(&csession->sender_domain);
 		csession->sender_local = local;
@@ -165,7 +165,7 @@ void domail(char **ptr)
 	}
 }
 
-void dorcpt(char **ptr)
+void dorcpt(void)
 {
 	if (csession->sender_domain.len == 0) {
 		ereply1("503", "Bad Sequence");
@@ -174,7 +174,7 @@ void dorcpt(char **ptr)
 	struct str local, domain;
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
-	if (prcpt(ptr, &local, &domain)) {
+	if (prcpt(&local, &domain)) {
 		ereply1("250", "OK");
 	} else {
 		ereply1("501", "Syntax Error");
@@ -183,38 +183,38 @@ void dorcpt(char **ptr)
 	free(domain.data);
 }
 
-void docommand(char **ptr)
+void docommand(void)
 {
-	if (pword(ptr, "HELO")) {
-		dohelo(ptr, 0);
-	} else if (pword(ptr, "EHLO")) {
-		dohelo(ptr, 1);
-	} else if (pword(ptr, "MAIL")) {
-		domail(ptr);
-	} else if (pword(ptr, "RCPT")) {
-		dorcpt(ptr);
-	} else if (pword(ptr, "DATA")) {
-		if (pcrlf(ptr)) {
+	if (pword("HELO")) {
+		dohelo(0);
+	} else if (pword("EHLO")) {
+		dohelo(1);
+	} else if (pword("MAIL")) {
+		domail();
+	} else if (pword("RCPT")) {
+		dorcpt();
+	} else if (pword("DATA")) {
+		if (pcrlf()) {
 			csession->flags |= INDATA;
 			ereply1("354", "Listening");
 		} else {
 			ereply1("501", "Syntax Error");
 		}
-	} else if (pword(ptr, "NOOP")) {
-		if (pcrlf(ptr)) {
+	} else if (pword("NOOP")) {
+		if (pcrlf()) {
 			ereply1("250", "OK");
 		} else {
 			ereply1("501", "Syntax Error");
 		}
-	} else if (pword(ptr, "RSET")) {
-		if (pcrlf(ptr)) {
+	} else if (pword("RSET")) {
+		if (pcrlf()) {
 			free(csession->sender_domain.data);
 			ereply1("250", "OK");
 		} else {
 			ereply1("501", "Syntax Error");
 		}
-	} else if (pword(ptr, "QUIT")) {
-		if (pcrlf(ptr)) {
+	} else if (pword("QUIT")) {
+		if (pcrlf()) {
 			csession->flags |= ZOMBIE;
 			ereply2("221", conf.domain, "Bye");
 		} else {
@@ -239,8 +239,9 @@ void doturn(struct str line)
 			}
 		}
 	} else {
-		char *cur = line.data;
-		docommand(&cur);
+		cphead = line.data;
+		docommand();
+		cphead = NULL;
 	}
 }
 

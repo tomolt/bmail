@@ -7,6 +7,8 @@
 #include "util.h"
 #include "smtp.h"
 
+char *cphead;
+
 int islocalc(char c)
 {
 	/* !#$%&'*+-./09=?AZ^_`az{|}~ */
@@ -37,46 +39,46 @@ int isdomainc(char c)
 	return 0;
 }
 
-int pchar(char **ptr, char ch)
+int pchar(char ch)
 {
-	int s = (**ptr == ch);
-	*ptr += s;
+	int s = (*cphead == ch);
+	cphead += s;
 	return s;
 }
 
-int pcrlf(char **ptr)
+int pcrlf(void)
 {
-	return pchar(ptr, '\r') && pchar(ptr, '\n');
+	return pchar('\r') && pchar('\n');
 }
 
-int pword(char **ptr, char *exp)
+int pword(char *exp)
 {
-	char *cur = *ptr;
+	char *head = cphead;
 	do {
 		char ec = *exp;
 		assert(ec > 64 && ec < 91);
-		char cc = *cur & 0xDF;
-		if (ec != cc) return 0;
-		++exp, ++cur;
+		char hc = *head & 0xDF;
+		if (ec != hc) return 0;
+		++exp, ++head;
 	} while (*exp);
-	*ptr = cur;
+	cphead = head;
 	return 1;
 }
 
-int plocal(char **ptr, struct str *str)
+int plocal(struct str *str)
 {
-	char *c = *ptr;
+	char *c = cphead;
 	/* TODO quoted local */
 	if (!islocalc(*c)) return 0;
 	do if (strput(str, *c++) < 0) return 0;
 	while (islocalc(*c));
-	*ptr = c;
+	cphead = c;
 	return 1;
 }
 
-int pdomain(char **ptr, struct str *str)
+int pdomain(struct str *str)
 {
-	char *c = *ptr;
+	char *c = cphead;
 	if (*c == '[') {
 		do if (strput(str, *c++) < 0) return 0;
 		while (isaddrc(*c));
@@ -87,12 +89,12 @@ int pdomain(char **ptr, struct str *str)
 		do if (strput(str, *c++) < 0) return 0;
 		while (isdomainc(*c));
 	}
-	*ptr = c;
+	cphead = c;
 	return 1;
 }
 
-int pmailbox(char **ptr, struct str *local, struct str *domain)
+int pmailbox(struct str *local, struct str *domain)
 {
-	return plocal(ptr, local) && pchar(ptr, '@') && pdomain(ptr, domain);
+	return plocal(local) && pchar('@') && pdomain(domain);
 }
 
