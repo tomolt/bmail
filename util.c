@@ -86,7 +86,7 @@ int strput(struct str *str, char c)
 void strdeq(struct str *str, size_t len)
 {
 	str->len -= len;
-	memmove(str->data, str->data-len, str->len);
+	memmove(str->data, str->data+len, str->len);
 	size_t cap = str->cap;
 	while (cap > 2 * str->len && cap > 16) cap /= 2;
 	if (str->cap == cap) return;

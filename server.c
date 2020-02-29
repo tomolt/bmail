@@ -254,13 +254,13 @@ void doturn(struct str line)
 {
 	if (csession->flags & INDATA) {
 		if (line.data[0] != '.') {
-			printf("%.*s", (int) line.len, line.data);
+			fwrite(line.data, 1, line.len, stdout);
 		} else {
 			if (line.data[1] == '\r' && line.data[2] == '\n') {
 				csession->flags &= ~INDATA;
 				ereply1("250", "OK");
 			} else {
-				printf("%.*s", (int) line.len-1, line.data+1);
+				fwrite(line.data+1, 1, line.len-1, stdout);
 			}
 		}
 	} else {
