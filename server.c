@@ -16,8 +16,12 @@
 
 #define PORT 5000
 
+/* Session flags: */
+/* Currently receiving the body of a message. */
 #define INDATA 0x01
+/* Session should be closed after flushing I/O. */
 #define ZOMBIE 0x02
+/* Session should be closed immediately. */
 #define DEAD   0x04
 
 struct session
@@ -26,6 +30,7 @@ struct session
 	struct str inq;
 	struct str outq;
 	struct str sender_local;
+	/* Empty sender_domain means no sender specified yet. */
 	struct str sender_domain;
 	int socket;
 	int flags;
@@ -33,6 +38,7 @@ struct session
 
 static struct session session;
 
+/* Handle common errno values in the case of an I/O error. */
 void ioerr(const char *func)
 {
 	switch (errno) {
@@ -58,6 +64,7 @@ void ioerr(const char *func)
 	}
 }
 
+/* Session-specific handling of I/O errors. */
 void sioerr(const char *func)
 {
 	switch (errno) {
@@ -120,6 +127,8 @@ void ereply2(char *code, char *arg1, char *arg2)
 		session.flags |= ZOMBIE;
 	}
 }
+
+/* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
 int phelo(char **ptr, struct str *domain)
 {
@@ -275,6 +284,7 @@ nextline:
 
 void server(void)
 {
+	/* Open the master socket. */
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
 	if (sock < 0) die("Can't open port %d:", PORT);
 

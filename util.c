@@ -29,6 +29,14 @@ int mkstr(struct str *str, size_t init)
 	return 0;
 }
 
+void clrstr(struct str *str)
+{
+	free(str->data);
+	str->data = NULL;
+	str->len = 0;
+	str->cap = 0;
+}
+
 int strext(struct str *str, size_t len, char *ext)
 {
 	int idx = str->len;
