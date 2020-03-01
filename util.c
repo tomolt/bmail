@@ -68,8 +68,10 @@ int strext(struct str *str, size_t len, char *ext)
 {
 	int idx = str->len;
 	str->len += len;
-	if (str->len > str->cap) {
-		str->cap *= 2;
+	size_t cap = str->cap;
+	while (cap < str->len) cap *= 2;
+	if (str->cap != cap) {
+		str->cap = cap;
 		void *mem = realloc(str->data, str->cap);
 		if (mem == NULL) return -1;
 		str->data = mem;
