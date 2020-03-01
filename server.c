@@ -250,21 +250,21 @@ void docommand(void)
 	}
 }
 
-void doturn(struct str line)
+void doturn(char *line, size_t len)
 {
 	if (csession->flags & INDATA) {
-		if (line.data[0] != '.') {
-			fwrite(line.data, 1, line.len, stdout);
+		if (line[0] != '.') {
+			fwrite(line, 1, len, stdout);
 		} else {
-			if (line.data[1] == '\r' && line.data[2] == '\n') {
+			if (line[1] == '\r' && line[2] == '\n') {
 				csession->flags &= ~INDATA;
 				ereply1("250", "OK");
 			} else {
-				fwrite(line.data+1, 1, line.len-1, stdout);
+				fwrite(line+1, 1, len-1, stdout);
 			}
 		}
 	} else {
-		cphead = line.data;
+		cphead = line;
 		docommand();
 		cphead = NULL;
 	}
@@ -272,18 +272,17 @@ void doturn(struct str line)
 
 void deqlines(void)
 {
-	char cr;
-nextline:
-	cr = 0;
+	int cr = 0;
+	size_t beg = 0;
 	for (size_t i = 0; i < csession->inq.len; ++i) {
-		char ch = csession->inq.data[i];
-		if (cr && ch == '\n') {
-			doturn(csession->inq);
-			strdeq(&csession->inq, i+1);
-			goto nextline;
+		char c = csession->inq.data[i];
+		if (cr && c == '\n') {
+			doturn(csession->inq.data + beg, i - beg + 1);
+			beg = i + 1;
 		}
-		cr = (ch == '\r');
+		cr = (c == '\r');
 	}
+	strdeq(&csession->inq, beg);
 }
 
 void server(void)
