@@ -285,6 +285,36 @@ void deqlines(void)
 	strdeq(&csession->inq, beg);
 }
 
+void dosession(int s)
+{
+	if (initsession(s) < 0) exit(0);
+	ereply2("220", conf.domain, "Ready");
+	while (!(csession->flags & DEAD)) {
+		int s = poll(&csession->pfd, 1, -1);
+		if (s < 0) {
+			ioerr("poll");
+		} else {
+			if (csession->pfd.revents & POLLIN) {
+				sread();
+				deqlines();
+			}
+
+			if (csession->pfd.revents & POLLOUT) {
+				swrite();
+			}
+
+			if (!(csession->flags & ZOMBIE)) csession->pfd.events = POLLIN;
+			if (csession->outq.len > 0) {
+				csession->pfd.events |= POLLOUT;
+			} else {
+				if (csession->flags & ZOMBIE) csession->flags |= DEAD;
+			}
+		}
+	}
+	freesession();
+	exit(0);
+}
+
 void server(void)
 {
 	/* Open the master socket. */
@@ -322,31 +352,9 @@ void server(void)
 			ioerr("accept");
 			continue;
 		}
-		if (initsession(s) < 0) continue;
-		ereply2("220", conf.domain, "Ready");
-		while (!(csession->flags & DEAD)) {
-			int s = poll(&csession->pfd, 1, -1);
-			if (s < 0) {
-				ioerr("poll");
-			} else {
-				if (csession->pfd.revents & POLLIN) {
-					sread();
-					deqlines();
-				}
-				
-				if (csession->pfd.revents & POLLOUT) {
-					swrite();
-				}
-
-				if (!(csession->flags & ZOMBIE)) csession->pfd.events = POLLIN;
-				if (csession->outq.len > 0) {
-					csession->pfd.events |= POLLOUT;
-				} else {
-					if (csession->flags & ZOMBIE) csession->flags |= DEAD;
-				}
-			}
-		}
-		freesession();
+		int pid = fork();
+		if (pid < 0) ioerr("fork");
+		else if (pid == 0) dosession(s);
 	}
 
 	close(sock);
