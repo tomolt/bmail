@@ -25,6 +25,12 @@ static void disconnect(void)
 	exit(0);
 }
 
+static void cleanup(int sig)
+{
+	(void) sig;
+	disconnect();
+}
+
 /* Session-specific handling of I/O errors. */
 static void sioerr(const char *func)
 {
@@ -185,7 +191,7 @@ static void dodata(void)
 
 void recvmail(void)
 {
-	/* TODO termination handler */
+	handlesignals(cleanup);
 
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {

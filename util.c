@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <syslog.h>
+#include <signal.h>
 #include <errno.h>
 
 #include "util.h"
@@ -45,6 +46,16 @@ void ioerr(const char *func)
 		syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
 		break;
 	}
+}
+
+void handlesignals(void (*handler)(int))
+{
+	struct sigaction sa = { .sa_handler = handler };
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGHUP,  &sa, NULL);
+	sigaction(SIGINT,  &sa, NULL);
+	sigaction(SIGQUIT, &sa, NULL);
 }
 
 int mkstr(struct str *str, size_t init)

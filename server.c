@@ -15,6 +15,15 @@
 
 extern void recvmail(void);
 
+static int sock;
+
+static void cleanup(int sig)
+{
+	(void) sig;
+	close(sock);
+	exit(1);
+}
+
 static int openmsock(int port)
 {
 	/* Init TCP socket. */
@@ -44,8 +53,10 @@ static int openmsock(int port)
 
 void server(void)
 {
-	/* TODO termination handler */
-	int sock = openmsock(PORT);
+	/* Set up termination handlers. */
+	handlesignals(cleanup);
+	/* Init master socket and prepare for polling. */
+	sock = openmsock(PORT);
 	struct pollfd pfds[1];
 	memset(pfds, 0, sizeof(pfds));
 	pfds[0].fd = sock;
@@ -78,6 +89,5 @@ void server(void)
 		}
 		close(s);
 	}
-	close(sock);
 }
 
