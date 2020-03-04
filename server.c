@@ -23,10 +23,15 @@ static struct str sender_local;
 static struct str sender_domain;
 static int sessock;
 
-void disconnect(void)
+void reset(void)
 {
 	clrstr(&sender_local);
 	clrstr(&sender_domain);
+}
+
+void disconnect(void)
+{
+	reset();
 	close(sessock);
 	exit(0);
 }
@@ -188,6 +193,8 @@ void dodata(void)
 
 void cmdloop(int s)
 {
+	/* TODO termination handler */
+
 	sessock = s;
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {
@@ -213,8 +220,7 @@ void cmdloop(int s)
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
-				clrstr(&sender_local);
-				clrstr(&sender_domain);
+				reset();
 				ereply1("250", "OK");
 			} else {
 				ereply1("501", "Syntax Error");
@@ -232,34 +238,46 @@ void cmdloop(int s)
 	}
 }
 
-void server(void)
+int openmsock(int port)
 {
-	/* Open the master socket. */
+	/* Init TCP socket. */
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
-	if (sock < 0) die("Can't open port %d:", PORT);
+	if (sock < 0) die("Can't open port %d:", port);
 
+	/* Fill in the listening address. */
 	struct sockaddr_in6 addr = { 0 };
 	addr.sin6_family = AF_INET6;
-	addr.sin6_port = htons(PORT);
+	addr.sin6_port = htons(port);
 	addr.sin6_addr = in6addr_any;
 
-	int s = bind(sock, (struct sockaddr *) &addr, sizeof(addr));
-	if (s < 0) die("Can't bind to socket:");
-	s = listen(sock, 1);
-	if (s < 0) die("Can't listen on socket:");
-
+	/* Configure socket to be non-blocking. */
 	int flags = fcntl(sock, F_GETFL, 0);
 	if (flags < 0) die("Can't read socket flags:");
 	flags = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 	if (flags < 0) die("Can't switch socket to non-blocking:");
 
-	struct pollfd pollfds[1];
-	memset(pollfds, 0, sizeof(pollfds));
-	pollfds[0].fd = sock;
-	pollfds[0].events = POLLIN;
+	/* Open the socket for incoming connections. */
+	int s = bind(sock, (struct sockaddr *) &addr, sizeof(addr));
+	if (s < 0) die("Can't bind to socket:");
+	s = listen(sock, 8);
+	if (s < 0) die("Can't listen on socket:");
+
+	return sock;
+}
+
+void server(void)
+{
+	/* TODO termination handler */
+
+	int sock = openmsock(PORT);
+
+	struct pollfd pfds[1];
+	memset(pfds, 0, sizeof(pfds));
+	pfds[0].fd = sock;
+	pfds[0].events = POLLIN;
 
 	for (;;) {
-		int s = poll(pollfds, 1, -1);
+		int s = poll(pfds, 1, -1);
 		if (s < 0) {
 			ioerr("poll");
 			continue;
