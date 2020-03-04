@@ -51,13 +51,15 @@ static void sioerr(const char *func)
 static void ereply1(char *code, char *arg1)
 {
 	/* TODO error checking */
-	dprintf(1, "%s %s\r\n", code, arg1);
+	printf("%s %s\r\n", code, arg1);
+	fflush(stdout);
 }
 
 static void ereply2(char *code, char *arg1, char *arg2)
 {
 	/* TODO error checking */
-	dprintf(1, "%s %s %s\r\n", code, arg1, arg2);
+	printf("%s %s %s\r\n", code, arg1, arg2);
+	fflush(stdout);
 }
 
 int readline(char line[], int *len)
@@ -66,11 +68,12 @@ int readline(char line[], int *len)
 	int i = 0, max = *len;
 	if (cr) line[i++] = '\r';
 	while (i < max) {
-		char c;
-		/* TODO Work on a FILE* instead of file descriptor. */
-		ssize_t s = read(0, &c, 1);
-		if (s == 0) disconnect();
-		if (s < 0) sioerr("read");
+		errno = 0;
+		int c = getchar();
+		if (c == EOF) {
+			if (errno) sioerr("getchar");
+			else disconnect();
+		}
 		line[i++] = c;
 		if (cr && c == '\n') {
 			cr = 0;
