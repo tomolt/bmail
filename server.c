@@ -22,20 +22,20 @@ static struct str sender_local;
 /* Empty sender_domain means no sender specified yet. */
 static struct str sender_domain;
 
-void reset(void)
+static void reset(void)
 {
 	clrstr(&sender_local);
 	clrstr(&sender_domain);
 }
 
-void disconnect(void)
+static void disconnect(void)
 {
 	reset();
 	exit(0);
 }
 
 /* Session-specific handling of I/O errors. */
-void sioerr(const char *func)
+static void sioerr(const char *func)
 {
 	switch (errno) {
 	case EPIPE:
@@ -48,13 +48,13 @@ void sioerr(const char *func)
 	}
 }
 
-void ereply1(char *code, char *arg1)
+static void ereply1(char *code, char *arg1)
 {
 	/* TODO error checking */
 	dprintf(1, "%s %s\r\n", code, arg1);
 }
 
-void ereply2(char *code, char *arg1, char *arg2)
+static void ereply2(char *code, char *arg1, char *arg2)
 {
 	/* TODO error checking */
 	dprintf(1, "%s %s %s\r\n", code, arg1, arg2);
@@ -84,7 +84,7 @@ int readline(char line[], int *len)
 	return 0;
 }
 
-void readcommand(char line[], int *len)
+static void readcommand(char line[], int *len)
 {
 	for (;;) {
 		if (readline(line, len)) return;
@@ -95,26 +95,26 @@ void readcommand(char line[], int *len)
 
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
-int phelo(struct str *domain)
+static int phelo(struct str *domain)
 {
 	return pchar(' ') && pdomain(domain) && pcrlf();
 }
 
-int pmail(struct str *local, struct str *domain)
+static int pmail(struct str *local, struct str *domain)
 {
 	int s =  pchar(' ') && pword("FROM") && pchar(':');
 	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
 	return   pcrlf();
 }
 
-int prcpt(struct str *local, struct str *domain)
+static int prcpt(struct str *local, struct str *domain)
 {
 	int s =  pchar(' ') && pword("TO") && pchar(':');
 	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
 	return   pcrlf();
 }
 
-void dohelo(int ext)
+static void dohelo(int ext)
 {
 	(void) ext;
 	struct str domain;
@@ -130,7 +130,7 @@ void dohelo(int ext)
 	clrstr(&domain);
 }
 
-void domail(void)
+static void domail(void)
 {
 	if (sender_domain.len > 0) {
 		ereply1("503", "Bad Sequence");
@@ -152,7 +152,7 @@ void domail(void)
 	}
 }
 
-void dorcpt(void)
+static void dorcpt(void)
 {
 	if (sender_domain.len == 0) {
 		ereply1("503", "Bad Sequence");
@@ -170,7 +170,7 @@ void dorcpt(void)
 	clrstr(&domain);
 }
 
-void dodata(void)
+static void dodata(void)
 {
 	if (!pcrlf()) {
 		ereply1("501", "Syntax Error");
@@ -189,7 +189,7 @@ void dodata(void)
 	ereply1("250", "OK");
 }
 
-void cmdloop(void)
+static void cmdloop(void)
 {
 	/* TODO termination handler */
 
@@ -235,7 +235,7 @@ void cmdloop(void)
 	}
 }
 
-int openmsock(int port)
+static int openmsock(int port)
 {
 	/* Init TCP socket. */
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
