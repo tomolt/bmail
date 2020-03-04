@@ -18,39 +18,26 @@
 
 #define PORT 5000
 
-/* Session flags: */
-/* Currently receiving the body of a message. */
-#define INDATA 0x01
-/* Session should be closed after flushing I/O. */
-#define ZOMBIE 0x02
-/* Session should be closed immediately. */
-#define DEAD   0x04
+static struct str sender_local;
+/* Empty sender_domain means no sender specified yet. */
+static struct str sender_domain;
+static int sessock;
 
-struct session
+void disconnect(void)
 {
-	struct pollfd pfd;
-	struct str inq;
-	struct str outq;
-	struct str sender_local;
-	/* Empty sender_domain means no sender specified yet. */
-	struct str sender_domain;
-	int socket;
-	int flags;
-};
-
-static struct session bsession;
-/* Pointer to the currently active session. */
-static struct session *csession = &bsession;
+	clrstr(&sender_local);
+	clrstr(&sender_domain);
+	close(sessock);
+	exit(0);
+}
 
 /* Session-specific handling of I/O errors. */
 void sioerr(const char *func)
 {
 	switch (errno) {
 	case EPIPE:
-		csession->flags |= ZOMBIE;
-		break;
 	case ECONNRESET: case ETIMEDOUT:
-		csession->flags |= DEAD;
+		disconnect();
 		break;
 	default:
 		ioerr(func);
@@ -58,76 +45,48 @@ void sioerr(const char *func)
 	}
 }
 
-int initsession(int fd)
-{
-	memset(csession, 0, sizeof(struct session));
-	if (mkstr(&csession->inq, 128) < 0) return -1;
-	if (mkstr(&csession->outq, 128) < 0) return -1;
-	csession->socket = fd;
-	int flags = fcntl(fd, F_GETFL, 0);
-	if (flags < 0) return -1;
-	flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-	if (flags < 0) return -1;
-	csession->pfd.fd = fd;
-	csession->pfd.events = POLLIN | POLLOUT;
-	return 0;
-}
-
-void freesession(void)
-{
-	clrstr(&csession->inq);
-	clrstr(&csession->outq);
-	clrstr(&csession->sender_local);
-	clrstr(&csession->sender_domain);
-	close(csession->socket);
-}
-
-void sread(void)
-{
-	char buf[128];
-	ssize_t s = read(csession->socket, buf, 128);
-	if (s < 0) {
-		sioerr("read");
-	} else if (s == 0) {
-		csession->flags |= ZOMBIE;
-	} else {
-		if (strext(&csession->inq, s, buf) < 0) {
-			csession->flags |= ZOMBIE;
-		}
-	}
-}
-
-void swrite(void)
-{
-	ssize_t s = write(csession->socket, csession->outq.data, csession->outq.len);
-	if (s < 0) {
-		sioerr("write");
-	} else {
-		strdeq(&csession->outq, s);
-	}
-}
-
 void ereply1(char *code, char *arg1)
 {
-	if (strext(&csession->outq, strlen(code), code) < 0 ||
-		strput(&csession->outq,  ' ') < 0 ||
-		strext(&csession->outq, strlen(arg1), arg1) < 0 ||
-		strput(&csession->outq, '\r') < 0 ||
-		strput(&csession->outq, '\n') < 0) {
-		csession->flags |= ZOMBIE;
-	}
+	/* TODO error checking */
+	dprintf(sessock, "%s %s\r\n", code, arg1);
 }
 
 void ereply2(char *code, char *arg1, char *arg2)
 {
-	if (strext(&csession->outq, strlen(code), code) < 0 ||
-		strput(&csession->outq,  ' ') < 0 ||
-		strext(&csession->outq, strlen(arg1), arg1) < 0 ||
-		strput(&csession->outq,  ' ') < 0 ||
-		strext(&csession->outq, strlen(arg2), arg2) < 0 ||
-		strput(&csession->outq, '\r') < 0 ||
-		strput(&csession->outq, '\n') < 0) {
-		csession->flags |= ZOMBIE;
+	/* TODO error checking */
+	dprintf(sessock, "%s %s %s\r\n", code, arg1, arg2);
+}
+
+int readline(char line[], int *len)
+{
+	static int cr = 0;
+	int i = 0, max = *len;
+	if (cr) line[i++] = '\r';
+	while (i < max) {
+		char c;
+		/* TODO Work on a FILE* instead of file descriptor. */
+		ssize_t s = read(sessock, &c, 1);
+		if (s == 0) disconnect();
+		if (s < 0) sioerr("read");
+		line[i++] = c;
+		if (cr && c == '\n') {
+			cr = 0;
+			*len = i;
+			return 1;
+		}
+		cr = (c == '\r');
+	}
+	if (cr) --i;
+	*len = i;
+	return 0;
+}
+
+void readcommand(char line[], int *len)
+{
+	for (;;) {
+		if (readline(line, len)) return;
+		while (!readline(line, len)) {}
+		ereply1("500", "Line too long");
 	}
 }
 
@@ -170,7 +129,7 @@ void dohelo(int ext)
 
 void domail(void)
 {
-	if (csession->sender_domain.len > 0) {
+	if (sender_domain.len > 0) {
 		ereply1("503", "Bad Sequence");
 		return;
 	}
@@ -178,10 +137,10 @@ void domail(void)
 	mkstr(&local, 16);
 	mkstr(&domain, 16);
 	if (pmail(&local, &domain)) {
-		clrstr(&csession->sender_local);
-		clrstr(&csession->sender_domain);
-		csession->sender_local = local;
-		csession->sender_domain = domain;
+		clrstr(&sender_local);
+		clrstr(&sender_domain);
+		sender_local = local;
+		sender_domain = domain;
 		ereply1("250", "OK");
 	} else {
 		clrstr(&local);
@@ -192,7 +151,7 @@ void domail(void)
 
 void dorcpt(void)
 {
-	if (csession->sender_domain.len == 0) {
+	if (sender_domain.len == 0) {
 		ereply1("503", "Bad Sequence");
 		return;
 	}
@@ -204,115 +163,73 @@ void dorcpt(void)
 	} else {
 		ereply1("501", "Syntax Error");
 	}
-	free(local.data);
-	free(domain.data);
+	clrstr(&local);
+	clrstr(&domain);
 }
 
-void docommand(void)
+void dodata(void)
 {
-	if (pword("HELO")) {
-		dohelo(0);
-	} else if (pword("EHLO")) {
-		dohelo(1);
-	} else if (pword("MAIL")) {
-		domail();
-	} else if (pword("RCPT")) {
-		dorcpt();
-	} else if (pword("DATA")) {
-		if (pcrlf()) {
-			csession->flags |= INDATA;
-			ereply1("354", "Listening");
-		} else {
-			ereply1("501", "Syntax Error");
-		}
-	} else if (pword("NOOP")) {
-		if (pcrlf()) {
-			ereply1("250", "OK");
-		} else {
-			ereply1("501", "Syntax Error");
-		}
-	} else if (pword("RSET")) {
-		if (pcrlf()) {
-			free(csession->sender_domain.data);
-			ereply1("250", "OK");
-		} else {
-			ereply1("501", "Syntax Error");
-		}
-	} else if (pword("QUIT")) {
-		if (pcrlf()) {
-			csession->flags |= ZOMBIE;
-			ereply2("221", conf.domain, "Bye");
-		} else {
-			ereply1("501", "Syntax Error");
-		}
-	} else {
-		ereply1("500", "Unknown Command");
+	if (!pcrlf()) {
+		ereply1("501", "Syntax Error");
 	}
+	ereply1("354", "Listening");
+	for (;;) {
+		char line[128];
+		int len = sizeof(line);
+		if (readline(line, &len) && line[0] == '.') {
+			if (len == 3) break;
+			printf("%.*s", len-1, line+1);
+		} else {
+			printf("%.*s", len, line);
+		}
+	}
+	ereply1("250", "OK");
 }
 
-void doturn(char *line, size_t len)
+void cmdloop(int s)
 {
-	if (csession->flags & INDATA) {
-		if (line[0] != '.') {
-			fwrite(line, 1, len, stdout);
-		} else {
-			if (line[1] == '\r' && line[2] == '\n') {
-				csession->flags &= ~INDATA;
+	sessock = s;
+	ereply2("220", conf.domain, "Ready");
+	for (;;) {
+		char line[128];
+		int len = sizeof(line);
+		readcommand(line, &len);
+		cphead = line;
+		if (pword("HELO")) {
+			dohelo(0);
+		} else if (pword("EHLO")) {
+			dohelo(1);
+		} else if (pword("MAIL")) {
+			domail();
+		} else if (pword("RCPT")) {
+			dorcpt();
+		} else if (pword("DATA")) {
+			dodata();
+		} else if (pword("NOOP")) {
+			if (pcrlf()) {
 				ereply1("250", "OK");
 			} else {
-				fwrite(line+1, 1, len-1, stdout);
+				ereply1("501", "Syntax Error");
 			}
-		}
-	} else {
-		cphead = line;
-		docommand();
-		cphead = NULL;
-	}
-}
-
-void deqlines(void)
-{
-	int cr = 0;
-	size_t beg = 0;
-	for (size_t i = 0; i < csession->inq.len; ++i) {
-		char c = csession->inq.data[i];
-		if (cr && c == '\n') {
-			doturn(csession->inq.data + beg, i - beg + 1);
-			beg = i + 1;
-		}
-		cr = (c == '\r');
-	}
-	strdeq(&csession->inq, beg);
-}
-
-void dosession(int s)
-{
-	if (initsession(s) < 0) exit(0);
-	ereply2("220", conf.domain, "Ready");
-	while (!(csession->flags & DEAD)) {
-		int s = poll(&csession->pfd, 1, -1);
-		if (s < 0) {
-			ioerr("poll");
-		} else {
-			if (csession->pfd.revents & POLLIN) {
-				sread();
-				deqlines();
-			}
-
-			if (csession->pfd.revents & POLLOUT) {
-				swrite();
-			}
-
-			if (!(csession->flags & ZOMBIE)) csession->pfd.events = POLLIN;
-			if (csession->outq.len > 0) {
-				csession->pfd.events |= POLLOUT;
+		} else if (pword("RSET")) {
+			if (pcrlf()) {
+				clrstr(&sender_local);
+				clrstr(&sender_domain);
+				ereply1("250", "OK");
 			} else {
-				if (csession->flags & ZOMBIE) csession->flags |= DEAD;
+				ereply1("501", "Syntax Error");
 			}
+		} else if (pword("QUIT")) {
+			if (pcrlf()) {
+				ereply2("221", conf.domain, "Bye");
+				disconnect();
+			} else {
+				ereply1("501", "Syntax Error");
+			}
+		} else {
+			ereply1("500", "Unknown Command");
 		}
 	}
-	freesession();
-	exit(0);
 }
 
 void server(void)
@@ -354,7 +271,7 @@ void server(void)
 		}
 		int pid = fork();
 		if (pid < 0) ioerr("fork");
-		else if (pid == 0) dosession(s);
+		else if (pid == 0) cmdloop(s);
 	}
 
 	close(sock);
