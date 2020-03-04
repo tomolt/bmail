@@ -21,7 +21,6 @@
 static struct str sender_local;
 /* Empty sender_domain means no sender specified yet. */
 static struct str sender_domain;
-static int sessock;
 
 void reset(void)
 {
@@ -32,7 +31,6 @@ void reset(void)
 void disconnect(void)
 {
 	reset();
-	close(sessock);
 	exit(0);
 }
 
@@ -53,13 +51,13 @@ void sioerr(const char *func)
 void ereply1(char *code, char *arg1)
 {
 	/* TODO error checking */
-	dprintf(sessock, "%s %s\r\n", code, arg1);
+	dprintf(1, "%s %s\r\n", code, arg1);
 }
 
 void ereply2(char *code, char *arg1, char *arg2)
 {
 	/* TODO error checking */
-	dprintf(sessock, "%s %s %s\r\n", code, arg1, arg2);
+	dprintf(1, "%s %s %s\r\n", code, arg1, arg2);
 }
 
 int readline(char line[], int *len)
@@ -70,7 +68,7 @@ int readline(char line[], int *len)
 	while (i < max) {
 		char c;
 		/* TODO Work on a FILE* instead of file descriptor. */
-		ssize_t s = read(sessock, &c, 1);
+		ssize_t s = read(0, &c, 1);
 		if (s == 0) disconnect();
 		if (s < 0) sioerr("read");
 		line[i++] = c;
@@ -183,19 +181,18 @@ void dodata(void)
 		int len = sizeof(line);
 		if (readline(line, &len) && line[0] == '.') {
 			if (len == 3) break;
-			printf("%.*s", len-1, line+1);
+			fprintf(stderr, "%.*s", len-1, line+1);
 		} else {
-			printf("%.*s", len, line);
+			fprintf(stderr, "%.*s", len, line);
 		}
 	}
 	ereply1("250", "OK");
 }
 
-void cmdloop(int s)
+void cmdloop(void)
 {
 	/* TODO termination handler */
 
-	sessock = s;
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {
 		char line[128];
@@ -288,8 +285,21 @@ void server(void)
 			continue;
 		}
 		int pid = fork();
-		if (pid < 0) ioerr("fork");
-		else if (pid == 0) cmdloop(s);
+		if (pid < 0) {
+			ioerr("fork");
+		} else if (pid == 0) {
+			/* Redirect child stdin & stdout to the socket. */
+			if (dup2(s, 0) < 0) {
+				ioerr("dup2");
+				exit(0);
+			}
+			if (dup2(s, 1) < 0) {
+				ioerr("dup2");
+				exit(0);
+			}
+			cmdloop();
+		}
+		close(s);
 	}
 
 	close(sock);
