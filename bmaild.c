@@ -9,7 +9,7 @@
 #include "util.h"
 #include "conf.h"
 
-void server(void);
+extern void server(void);
 
 char *argv0;
 struct conf conf;
