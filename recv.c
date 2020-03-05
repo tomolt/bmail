@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <syslog.h>
 
@@ -12,11 +13,13 @@
 static struct str sender_local;
 /* Empty sender_domain means no sender specified yet. */
 static struct str sender_domain;
+static int rcpt_dir;
 
 static void reset(void)
 {
 	clrstr(&sender_local);
 	clrstr(&sender_domain);
+	rcpt_dir = -1;
 }
 
 static void disconnect(void)
@@ -91,6 +94,23 @@ static void readcommand(char line[], int *len)
 		while (!readline(line, len)) {}
 		ereply1("500", "Line too long");
 	}
+}
+
+static int openmbox(const char *name)
+{
+	/* Make sure name isn't some weird file path. */
+	if (name[0] == '.') return -1;
+	for (const char *c = name; *c; ++c) {
+		if (*c == '/') return -1;
+		if (!islocalc(*c)) return -1;
+	}
+	/* Try to open directory of the same name. */
+	int fd = open(name, O_DIRECTORY);
+	if (fd < 0) {
+		if (errno != ENOENT) ioerr("open");
+		return -1;
+	}
+	return fd;
 }
 
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
@@ -192,7 +212,7 @@ static void dodata(void)
 void recvmail(void)
 {
 	handlesignals(cleanup);
-
+	reset();
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {
 		char line[128];
