@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <syslog.h>
@@ -10,15 +11,14 @@
 #include "util.h"
 #include "smtp.h"
 
-static struct str sender_local;
-/* Empty sender_domain means no sender specified yet. */
-static struct str sender_domain;
+static char sender_local[LOCAL_LEN+1];
+static char sender_domain[DOMAIN_LEN+1];
 static int rcpt_dir;
 
 static void reset(void)
 {
-	clrstr(&sender_local);
-	clrstr(&sender_domain);
+	memset(sender_local, 0, sizeof(sender_local));
+	memset(sender_domain, 0, sizeof(sender_domain));
 	rcpt_dir = -1;
 }
 
@@ -115,19 +115,19 @@ static int openmbox(const char *name)
 
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
-static int phelo(struct str *domain)
+static int phelo(char domain[])
 {
 	return pchar(' ') && pdomain(domain) && pcrlf();
 }
 
-static int pmail(struct str *local, struct str *domain)
+static int pmail(char local[], char domain[])
 {
 	int s =  pchar(' ') && pword("FROM") && pchar(':');
 	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
 	return   pcrlf();
 }
 
-static int prcpt(struct str *local, struct str *domain)
+static int prcpt(char local[], char domain[])
 {
 	int s =  pchar(' ') && pword("TO") && pchar(':');
 	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
@@ -137,57 +137,33 @@ static int prcpt(struct str *local, struct str *domain)
 static void dohelo(int ext)
 {
 	(void) ext;
-	struct str domain;
-	mkstr(&domain, 16);
-	if (phelo(&domain)) {
-		syslog(LOG_MAIL | LOG_INFO,
-			"Incoming connection from <%.*s>.",
-			(int) domain.len, domain.data);
+	char domain[DOMAIN_LEN+1];
+	if (phelo(domain)) {
+		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
 		ereply1("250", conf.domain);
 	} else {
 		ereply1("501", "Syntax Error");
 	}
-	clrstr(&domain);
 }
 
 static void domail(void)
 {
-	if (sender_domain.len > 0) {
-		ereply1("503", "Bad Sequence");
-		return;
-	}
-	struct str local, domain;
-	mkstr(&local, 16);
-	mkstr(&domain, 16);
-	if (pmail(&local, &domain)) {
-		clrstr(&sender_local);
-		clrstr(&sender_domain);
-		sender_local = local;
-		sender_domain = domain;
+	if (pmail(sender_local, sender_domain)) {
 		ereply1("250", "OK");
 	} else {
-		clrstr(&local);
-		clrstr(&domain);
 		ereply1("501", "Syntax Error");
 	}
 }
 
 static void dorcpt(void)
 {
-	if (sender_domain.len == 0) {
-		ereply1("503", "Bad Sequence");
-		return;
-	}
-	struct str local, domain;
-	mkstr(&local, 16);
-	mkstr(&domain, 16);
-	if (prcpt(&local, &domain)) {
+	char local[LOCAL_LEN+1];
+	char domain[DOMAIN_LEN+1];
+	if (prcpt(local, domain)) {
 		ereply1("250", "OK");
 	} else {
 		ereply1("501", "Syntax Error");
 	}
-	clrstr(&local);
-	clrstr(&domain);
 }
 
 static void dodata(void)

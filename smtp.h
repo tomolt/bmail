@@ -1,6 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
-/* needs util.h */
+#define LOCAL_LEN 64
+#define DOMAIN_LEN 255
 
 /* Current read head. Used and modified by all SMTP parsing functions. */
 extern char *cphead;
@@ -15,8 +16,7 @@ int isdomainc(char c);
 /* Functions starting with a single 'p' are SMTP parsing functions.
  * Together, they implement a sort of hand-written LL(1) parser.
  * On sucess, they return 1 and advance cphead behind the matched text.
- * On failure, they return 0 and don't modify cphead.
- * Parsing functions never initialize or free any struct str arguments. */
+ * On failure, they return 0 and don't modify cphead. */
 
 /* Matches the single character ch. */
 int pchar(char ch);
@@ -25,9 +25,9 @@ int pcrlf(void);
 /* Matches the word exp. exp may only consist of uppercase ASCII characters. */
 int pword(char *exp);
 /* Parses the local part of an e-mail address, and returns it in str. */
-int plocal(struct str *str);
+int plocal(char str[]);
 /* Parses the domain part of an e-mail address, and returns it in str. */
-int pdomain(struct str *str);
+int pdomain(char str[]);
 /* Parses an e-mail address, and returns the local and domain part separately. */
-int pmailbox(struct str *local, struct str *domain);
+int pmailbox(char local[], char domain[]);
 

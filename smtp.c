@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <assert.h>
 
-#include "util.h"
 #include "smtp.h"
 
 char *cphead;
@@ -65,35 +64,45 @@ int pword(char *exp)
 	return 1;
 }
 
-int plocal(struct str *str)
+int plocal(char str[])
 {
 	char *c = cphead;
 	/* TODO quoted local */
 	if (!islocalc(*c)) return 0;
-	do if (strput(str, *c++) < 0) return 0;
-	while (islocalc(*c));
+	int i = 0;
+	do {
+		if (i >= LOCAL_LEN) return 0;
+		str[i++] = *c++;
+	} while (islocalc(*c));
+	str[i] = 0;
 	cphead = c;
 	return 1;
 }
 
-int pdomain(struct str *str)
+int pdomain(char str[])
 {
 	char *c = cphead;
+	int i = 0;
 	if (*c == '[') {
-		do if (strput(str, *c++) < 0) return 0;
-		while (isaddrc(*c));
+		do {
+			if (i >= DOMAIN_LEN-1) return 0;
+			str[i++] = *c++;
+		} while (isaddrc(*c));
 		if (*c != ']') return 0;
-		if (strput(str, *c++) < 0) return 0;
+		str[i++] = *c++;
 	} else {
 		if (!isdomainc(*c)) return 0;
-		do if (strput(str, *c++) < 0) return 0;
-		while (isdomainc(*c));
+		do {
+			if (i >= DOMAIN_LEN) return 0;
+			str[i++] = *c++;
+		} while (isdomainc(*c));
 	}
+	str[i] = 0;
 	cphead = c;
 	return 1;
 }
 
-int pmailbox(struct str *local, struct str *domain)
+int pmailbox(char local[], char domain[])
 {
 	return plocal(local) && pchar('@') && pdomain(domain);
 }
