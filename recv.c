@@ -62,10 +62,10 @@ static void ereply2(char *code, char *arg1, char *arg2)
 	fflush(stdout);
 }
 
-int readline(char line[], int *len)
+int readline(char line[], int max, int *len)
 {
 	static int cr = 0;
-	int i = 0, max = *len;
+	int i = 0;
 	if (cr) line[i++] = '\r';
 	while (i < max) {
 		errno = 0;
@@ -87,11 +87,11 @@ int readline(char line[], int *len)
 	return 0;
 }
 
-static void readcommand(char line[], int *len)
+static void readcommand(char line[], int max, int *len)
 {
 	for (;;) {
-		if (readline(line, len)) return;
-		while (!readline(line, len)) {}
+		if (readline(line, max, len)) return;
+		while (!readline(line, max, len)) {}
 		ereply1("500", "Line too long");
 	}
 }
@@ -172,15 +172,17 @@ static void dodata(void)
 		ereply1("501", "Syntax Error");
 	}
 	ereply1("354", "Listening");
+	int begs = 1;
 	for (;;) {
 		char line[128];
-		int len = sizeof(line);
-		if (readline(line, &len) && line[0] == '.') {
-			if (len == 3) break;
+		int len, ends = readline(line, sizeof(line), &len);
+		if (begs && line[0] == '.') {
+			if (ends && len == 3) break;
 			fprintf(stderr, "%.*s", len-1, line+1);
 		} else {
 			fprintf(stderr, "%.*s", len, line);
 		}
+		begs = ends;
 	}
 	ereply1("250", "OK");
 }
@@ -192,8 +194,8 @@ void recvmail(void)
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {
 		char line[128];
-		int len = sizeof(line);
-		readcommand(line, &len);
+		int len;
+		readcommand(line, sizeof(line), &len);
 		cphead = line;
 		if (pword("HELO")) {
 			dohelo(0);
