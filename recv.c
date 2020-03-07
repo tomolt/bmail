@@ -177,11 +177,8 @@ static void dodata(void)
 	ereply1("354", "Listening");
 	FILE *files[RCPT_MAX];
 	for (int i = 0; i < rcpt_count; ++i) {
-		char name[LOCAL_LEN + UNIQNAME_LEN + 6];
-		int rlen = strlen(rcpt_list[i]);
-		memcpy(name, rcpt_list[i], rlen);
-		memcpy(name + rlen, "/tmp/", 5);
-		strcpy(name + rlen + 5, mail_name);
+		char name[MAILPATH_LEN+1];
+		mailpath(name, rcpt_list[i], "tmp", mail_name);
 		files[i] = fopen(name, "wb"); /* TODO error checking */
 	}
 	int begs = 1;
@@ -199,6 +196,11 @@ static void dodata(void)
 	}
 	for (int i = 0; i < rcpt_count; ++i) {
 		fclose(files[i]);
+		char tmpname[MAILPATH_LEN+1];
+		mailpath(tmpname, rcpt_list[i], "tmp", mail_name);
+		char newname[MAILPATH_LEN+1];
+		mailpath(newname, rcpt_list[i], "new", mail_name);
+		rename(tmpname, newname); /* TODO error checking */
 	}
 	reset();
 	ereply1("250", "OK");

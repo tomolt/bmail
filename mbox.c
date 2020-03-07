@@ -1,6 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <errno.h>
 #include <unistd.h>
@@ -62,5 +63,15 @@ int vrfylocal(const char *name)
 	if (stat(name, &info) < 0) return 0; /* TODO maybe log problems? */
 	/* Verify that this node is a directory. */
 	return S_ISDIR(info.st_mode);
+}
+
+void mailpath(char buf[], char local[], char folder[], char mname[])
+{
+	int llen = strlen(local);
+	memcpy(buf, local, llen);
+	*(buf + llen) = '/';
+	memcpy(buf + llen + 1, folder, 3);
+	*(buf + llen + 4) = '/';
+	strcpy(buf + llen + 5, mname);
 }
 
