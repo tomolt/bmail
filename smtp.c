@@ -107,3 +107,22 @@ int pmailbox(char local[], char domain[])
 	return plocal(local) && pchar('@') && pdomain(domain);
 }
 
+int phelo(char domain[])
+{
+	return pchar(' ') && pdomain(domain) && pcrlf();
+}
+
+int pmail(char local[], char domain[])
+{
+	int s =  pchar(' ') && pword("FROM") && pchar(':');
+	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
+	return   pcrlf();
+}
+
+int prcpt(char local[], char domain[])
+{
+	int s =  pchar(' ') && pword("TO") && pchar(':');
+	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
+	return   pcrlf();
+}
+

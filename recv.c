@@ -40,7 +40,7 @@ static void cleanup(int sig)
 	disconnect();
 }
 
-/* Session-specific handling of I/O errors. */
+/* receiver-specific handling of I/O errors. */
 static void sioerr(const char *func)
 {
 	switch (errno) {
@@ -54,20 +54,27 @@ static void sioerr(const char *func)
 	}
 }
 
-static void ereply1(char *code, char *arg1)
+static void reply1(char *code, char *arg1)
 {
 	/* TODO error checking */
 	printf("%s %s\r\n", code, arg1);
 	fflush(stdout);
 }
 
-static void ereply2(char *code, char *arg1, char *arg2)
+static void reply2(char *code, char *arg1, char *arg2)
 {
 	/* TODO error checking */
 	printf("%s %s %s\r\n", code, arg1, arg2);
 	fflush(stdout);
 }
 
+/* Read a CRLF-terminated line from stdin into line, and its length into len.
+ * The line is not NULL-terminated and may contain any raw byte values,
+ * including NULL. If a line is longer than max readline() will only return
+ * up to the first max characters. The rest of the line can be read with
+ * subsequent calls to readline(). Incomplete lines like these are guaranteed
+ * to never contain only part of a CRLF sequence.
+ * Returns 0 if line hasn't been read completely and 1 otherwise. */
 static int readline(char line[], int max, int *len)
 {
 	static int cr = 0;
@@ -93,34 +100,16 @@ static int readline(char line[], int max, int *len)
 	return 0;
 }
 
+/* Block until a line of at most max characters was read.
+ * Longer lines are discarded and an error is sent to the client
+ * until a short enough line could be read. */
 static void readcommand(char line[], int max, int *len)
 {
 	for (;;) {
 		if (readline(line, max, len)) return;
 		while (!readline(line, max, len)) {}
-		ereply1("500", "Line too long");
+		reply1("500", "Line too long");
 	}
-}
-
-/* SMTP server-specific parsing functions. See smtp.h for conventions. */
-
-static int phelo(char domain[])
-{
-	return pchar(' ') && pdomain(domain) && pcrlf();
-}
-
-static int pmail(char local[], char domain[])
-{
-	int s =  pchar(' ') && pword("FROM") && pchar(':');
-	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
-	return   pcrlf();
-}
-
-static int prcpt(char local[], char domain[])
-{
-	int s =  pchar(' ') && pword("TO") && pchar(':');
-	s = s && pchar('<') && pmailbox(local, domain) && pchar('>');
-	return   pcrlf();
 }
 
 static void dohelo(int ext)
@@ -129,9 +118,9 @@ static void dohelo(int ext)
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
-		ereply1("250", conf.domain);
+		reply1("250", conf.domain);
 	} else {
-		ereply1("501", "Syntax Error");
+		reply1("501", "Syntax Error");
 	}
 }
 
@@ -139,9 +128,9 @@ static void domail(void)
 {
 	if (pmail(sender_local, sender_domain)) {
 		strcpy(mail_name, uniqname());
-		ereply1("250", "OK");
+		reply1("250", "OK");
 	} else {
-		ereply1("501", "Syntax Error");
+		reply1("501", "Syntax Error");
 	}
 }
 
@@ -150,31 +139,31 @@ static void dorcpt(void)
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
 	if (!prcpt(local, domain)) {
-		ereply1("501", "Syntax Error");
+		reply1("501", "Syntax Error");
 		return;
 	}
 	if (strcmp(domain, conf.domain) != 0) {
-		ereply1("550", "User not local"); /* TODO should this be 551? */
+		reply1("550", "User not local"); /* TODO should this be 551? */
 		return;
 	}
 	if (!vrfylocal(local)) {
-		ereply1("550", "User non-existant");
+		reply1("550", "User non-existant");
 		return;
 	}
 	if (rcpt_count >= RCPT_MAX) {
-		ereply1("452", "Too many users");
+		reply1("452", "Too many users");
 		return;
 	}
 	strcpy(rcpt_list[rcpt_count++], local);
-	ereply1("250", "OK");
+	reply1("250", "OK");
 }
 
 static void dodata(void)
 {
 	if (!pcrlf()) {
-		ereply1("501", "Syntax Error");
+		reply1("501", "Syntax Error");
 	}
-	ereply1("354", "Listening");
+	reply1("354", "Listening");
 	FILE *files[RCPT_MAX];
 	for (int i = 0; i < rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
@@ -203,14 +192,14 @@ static void dodata(void)
 		rename(tmpname, newname); /* TODO error checking */
 	}
 	reset();
-	ereply1("250", "OK");
+	reply1("250", "OK");
 }
 
 void recvmail(void)
 {
 	handlesignals(cleanup);
 	reset();
-	ereply2("220", conf.domain, "Ready");
+	reply2("220", conf.domain, "Ready");
 	for (;;) {
 		char line[COMMAND_LEN];
 		int len;
@@ -228,26 +217,26 @@ void recvmail(void)
 			dodata();
 		} else if (pword("NOOP")) {
 			if (pcrlf()) {
-				ereply1("250", "OK");
+				reply1("250", "OK");
 			} else {
-				ereply1("501", "Syntax Error");
+				reply1("501", "Syntax Error");
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
 				reset();
-				ereply1("250", "OK");
+				reply1("250", "OK");
 			} else {
-				ereply1("501", "Syntax Error");
+				reply1("501", "Syntax Error");
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				ereply2("221", conf.domain, "Bye");
+				reply2("221", conf.domain, "Bye");
 				disconnect();
 			} else {
-				ereply1("501", "Syntax Error");
+				reply1("501", "Syntax Error");
 			}
 		} else {
-			ereply1("500", "Unknown Command");
+			reply1("500", "Unknown Command");
 		}
 	}
 }

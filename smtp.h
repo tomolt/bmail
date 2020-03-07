@@ -33,3 +33,8 @@ int pdomain(char str[]);
 /* Parses an e-mail address, and returns the local and domain part separately. */
 int pmailbox(char local[], char domain[]);
 
+/* SMTP server-specific parsing functions. */
+int phelo(char domain[]);
+int pmail(char local[], char domain[]);
+int prcpt(char local[], char domain[]);
+
