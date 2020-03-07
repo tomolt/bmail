@@ -51,6 +51,7 @@ char *uniqname(void)
 int vrfylocal(const char *name)
 {
 	/* Make sure name isn't some weird file path. */
+	if (name[0] == '\0') return 0;
 	if (name[0] == '.') return 0;
 	for (const char *c = name; *c; ++c) {
 		if (*c == '/') return 0;

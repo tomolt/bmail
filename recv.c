@@ -175,17 +175,30 @@ static void dodata(void)
 		ereply1("501", "Syntax Error");
 	}
 	ereply1("354", "Listening");
+	FILE *files[RCPT_MAX];
+	for (int i = 0; i < rcpt_count; ++i) {
+		char name[LOCAL_LEN + UNIQNAME_LEN + 6];
+		int rlen = strlen(rcpt_list[i]);
+		memcpy(name, rcpt_list[i], rlen);
+		memcpy(name + rlen, "/tmp/", 5);
+		strcpy(name + rlen + 5, mail_name);
+		files[i] = fopen(name, "wb"); /* TODO error checking */
+	}
 	int begs = 1;
 	for (;;) {
-		char line[PAGE_LEN];
+		char line[PAGE_LEN], *data = line;
 		int len, ends = readline(line, sizeof(line), &len);
 		if (begs && line[0] == '.') {
 			if (ends && len == 3) break;
-			fprintf(stderr, "%.*s", len-1, line+1);
-		} else {
-			fprintf(stderr, "%.*s", len, line);
+			++data, --len;
+		}
+		for (int i = 0; i < rcpt_count; ++i) {
+			fwrite(data, 1, len, files[i]); /* TODO error checking */
 		}
 		begs = ends;
+	}
+	for (int i = 0; i < rcpt_count; ++i) {
+		fclose(files[i]);
 	}
 	reset();
 	ereply1("250", "OK");
