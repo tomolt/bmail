@@ -1,6 +1,5 @@
 /* See LICENSE file for copyright and license details. */
 
-#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <syslog.h>
@@ -20,7 +19,7 @@ void die(const char *fmt, ...)
 	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
 		syslog(prio, "  %s", strerror(err));
 	}
-	exit(1);
+	killpg(0, SIGTERM);
 }
 
 void ioerr(const char *func)
@@ -53,7 +52,8 @@ void handlesignals(void (*handler)(int))
 	struct sigaction sa = { .sa_handler = handler };
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGTERM, &sa, NULL);
-	sigaction(SIGHUP,  &sa, NULL);
+	/* Not sure if this is a good idea or not. */
+	/* sigaction(SIGHUP,  &sa, NULL); */
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGQUIT, &sa, NULL);
 }

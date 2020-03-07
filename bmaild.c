@@ -23,6 +23,7 @@ static void usage(void)
 
 int main(int argc, char *argv[])
 {
+	setpgid(0, 0);
 	/* Handle command line arguments. */
 	conf.spool = "/var/spool/mail";
 	ARGBEGIN {
