@@ -3,9 +3,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <errno.h>
-#include <sys/types.h>
 #include <unistd.h>
-#include <fcntl.h>
+#include <sys/stat.h>
 #include <inttypes.h>
 
 #include "util.h"
@@ -31,23 +30,6 @@ void updsequence(void)
 	fclose(file);
 }
 
-int openmbox(const char *name)
-{
-	/* Make sure name isn't some weird file path. */
-	if (name[0] == '.') return -1;
-	for (const char *c = name; *c; ++c) {
-		if (*c == '/') return -1;
-		if (!islocalc(*c)) return -1;
-	}
-	/* Try to open directory of the same name. */
-	int fd = open(name, O_DIRECTORY);
-	if (fd < 0) {
-		if (errno != ENOENT) ioerr("open");
-		return -1;
-	}
-	return fd;
-}
-
 char *uniqname(void)
 {
 	static char buf[UNIQNAME_LEN+1];
@@ -64,5 +46,20 @@ char *uniqname(void)
 	sprintf(buf, "%"PRIx32".%"PRIx32".%"PRIx32".%"PRIx32,
 		nums[0], nums[1], nums[2], nums[3]);
 	return buf;
+}
+
+int vrfylocal(const char *name)
+{
+	/* Make sure name isn't some weird file path. */
+	if (name[0] == '.') return 0;
+	for (const char *c = name; *c; ++c) {
+		if (*c == '/') return 0;
+		if (!islocalc(*c)) return 0;
+	}
+	/* Check if a node of that name exists. */
+	struct stat info;
+	if (stat(name, &info) < 0) return 0; /* TODO maybe log problems? */
+	/* Verify that this node is a directory. */
+	return S_ISDIR(info.st_mode);
 }
 

@@ -3,6 +3,6 @@
 #define UNIQNAME_LEN 35
 
 void updsequence(void);
-int openmbox(const char *name);
 char *uniqname(void);
+int vrfylocal(const char *name);
 

@@ -12,15 +12,20 @@
 #include "smtp.h"
 #include "mbox.h"
 
+#define RCPT_MAX 100
+
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
 static char mail_name[UNIQNAME_LEN+1];
+static char rcpt_list[RCPT_MAX][LOCAL_LEN+1];
+static int rcpt_count;
 
 static void reset(void)
 {
 	memset(sender_local, 0, sizeof(sender_local));
 	memset(sender_domain, 0, sizeof(sender_domain));
 	memset(mail_name, 0, sizeof(mail_name));
+	rcpt_count = 0;
 }
 
 static void disconnect(void)
@@ -152,12 +157,15 @@ static void dorcpt(void)
 		ereply1("550", "User not local"); /* TODO should this be 551? */
 		return;
 	}
-	int mbox = openmbox(local);
-	if (mbox < 0) {
+	if (!vrfylocal(local)) {
 		ereply1("550", "User non-existant");
 		return;
 	}
-	// int rlen = strlen(local);
+	if (rcpt_count >= RCPT_MAX) {
+		ereply1("452", "Too many users");
+		return;
+	}
+	strcpy(rcpt_list[rcpt_count++], local);
 	ereply1("250", "OK");
 }
 
