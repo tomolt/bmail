@@ -10,6 +10,7 @@
 #include "conf.h"
 #include "util.h"
 #include "smtp.h"
+#include "mbox.h"
 
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
@@ -96,34 +97,6 @@ static void readcommand(char line[], int max, int *len)
 	}
 }
 
-static int openmbox(const char *name)
-{
-	/* Make sure name isn't some weird file path. */
-	if (name[0] == '.') return -1;
-	for (const char *c = name; *c; ++c) {
-		if (*c == '/') return -1;
-		if (!islocalc(*c)) return -1;
-	}
-	/* Try to open directory of the same name. */
-	int fd = open(name, O_DIRECTORY);
-	if (fd < 0) {
-		if (errno != ENOENT) ioerr("open");
-		return -1;
-	}
-	return fd;
-}
-
-#if 0
-static char *uniqname(void)
-{
-	/* TODO better algorithm */
-	static char buf[6+4+1];
-	sprintf(buf, "%06u", getpid());
-
-	return *buf;
-}
-#endif
-
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
 static int phelo(char domain[])
@@ -184,6 +157,7 @@ static void dorcpt(void)
 		return;
 	}
 	rcpt_dir = mbox;
+	fprintf(stderr, "%s: %s\n", local, uniqname());
 	ereply1("250", "OK");
 }
 

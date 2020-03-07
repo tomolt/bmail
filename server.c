@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 
 #include "util.h"
+#include "mbox.h"
 
 #define PORT 5000
 
@@ -26,6 +27,8 @@ static void cleanup(int sig)
 
 static int openmsock(int port)
 {
+	updsequence();
+
 	/* Init TCP socket. */
 	int sock = socket(AF_INET6, SOCK_STREAM, 0);
 	if (sock < 0) die("Can't open port %d:", port);
