@@ -14,13 +14,13 @@
 
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
-static int rcpt_dir;
+static char mail_name[UNIQNAME_LEN+1];
 
 static void reset(void)
 {
 	memset(sender_local, 0, sizeof(sender_local));
 	memset(sender_domain, 0, sizeof(sender_domain));
-	rcpt_dir = -1;
+	memset(mail_name, 0, sizeof(mail_name));
 }
 
 static void disconnect(void)
@@ -133,6 +133,7 @@ static void dohelo(int ext)
 static void domail(void)
 {
 	if (pmail(sender_local, sender_domain)) {
+		strcpy(mail_name, uniqname());
 		ereply1("250", "OK");
 	} else {
 		ereply1("501", "Syntax Error");
@@ -148,16 +149,15 @@ static void dorcpt(void)
 		return;
 	}
 	if (strcmp(domain, conf.domain) != 0) {
-		ereply1("XXX", "User not local"); /* TODO proper code */
+		ereply1("550", "User not local"); /* TODO should this be 551? */
 		return;
 	}
 	int mbox = openmbox(local);
 	if (mbox < 0) {
-		ereply1("XXX", "User non-existant"); /* TODO proper code */
+		ereply1("550", "User non-existant");
 		return;
 	}
-	rcpt_dir = mbox;
-	fprintf(stderr, "%s: %s\n", local, uniqname());
+	// int rlen = strlen(local);
 	ereply1("250", "OK");
 }
 

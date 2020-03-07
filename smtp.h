@@ -3,7 +3,7 @@
 #define LOCAL_LEN 64
 #define DOMAIN_LEN 255
 #define COMMAND_LEN 512
-#define PAGE_LEN 255
+#define PAGE_LEN 256
 
 /* Current read head. Used and modified by all SMTP parsing functions. */
 extern char *cphead;
