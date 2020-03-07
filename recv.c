@@ -62,7 +62,7 @@ static void ereply2(char *code, char *arg1, char *arg2)
 	fflush(stdout);
 }
 
-int readline(char line[], int max, int *len)
+static int readline(char line[], int max, int *len)
 {
 	static int cr = 0;
 	int i = 0;
@@ -113,6 +113,17 @@ static int openmbox(const char *name)
 	return fd;
 }
 
+#if 0
+static char *uniqname(void)
+{
+	/* TODO better algorithm */
+	static char buf[6+4+1];
+	sprintf(buf, "%06u", getpid());
+
+	return *buf;
+}
+#endif
+
 /* SMTP server-specific parsing functions. See smtp.h for conventions. */
 
 static int phelo(char domain[])
@@ -159,11 +170,21 @@ static void dorcpt(void)
 {
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
-	if (prcpt(local, domain)) {
-		ereply1("250", "OK");
-	} else {
+	if (!prcpt(local, domain)) {
 		ereply1("501", "Syntax Error");
+		return;
 	}
+	if (strcmp(domain, conf.domain) != 0) {
+		ereply1("XXX", "User not local"); /* TODO proper code */
+		return;
+	}
+	int mbox = openmbox(local);
+	if (mbox < 0) {
+		ereply1("XXX", "User non-existant"); /* TODO proper code */
+		return;
+	}
+	rcpt_dir = mbox;
+	ereply1("250", "OK");
 }
 
 static void dodata(void)
@@ -174,7 +195,7 @@ static void dodata(void)
 	ereply1("354", "Listening");
 	int begs = 1;
 	for (;;) {
-		char line[128];
+		char line[PAGE_LEN];
 		int len, ends = readline(line, sizeof(line), &len);
 		if (begs && line[0] == '.') {
 			if (ends && len == 3) break;
@@ -184,6 +205,7 @@ static void dodata(void)
 		}
 		begs = ends;
 	}
+	reset();
 	ereply1("250", "OK");
 }
 
@@ -193,7 +215,7 @@ void recvmail(void)
 	reset();
 	ereply2("220", conf.domain, "Ready");
 	for (;;) {
-		char line[128];
+		char line[COMMAND_LEN];
 		int len;
 		readcommand(line, sizeof(line), &len);
 		cphead = line;
