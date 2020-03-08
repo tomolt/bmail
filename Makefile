@@ -12,8 +12,8 @@ clean:
 	rm -f bmaild
 
 bmaild: bmaild.o recv.o mbox.o smtp.o util.o
-bmaild.o: arg.h util.h mbox.h conf.h
-recv.o: conf.h util.h smtp.h mbox.h
+bmaild.o: util.h mbox.h
+recv.o: util.h smtp.h mbox.h
 mbox.o: util.h smtp.h mbox.h
 smtp.o: smtp.h
 util.o: util.h

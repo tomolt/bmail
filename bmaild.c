@@ -13,11 +13,9 @@
 
 #include "util.h"
 #include "mbox.h"
-#include "conf.h"
 
 #define PORT 5000
 
-struct conf conf;
 static int sock;
 
 extern void recvmail(void);
@@ -59,12 +57,11 @@ int main()
 	openlog("bmaild", 0, LOG_MAIL);
 	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
 	/* Verify that all neccessary environment variables exist. */
-	conf.domain = getenv("BMAIL_DOMAIN");
-	if (conf.domain == NULL) die("BMAIL_DOMAIN is not set.");
-	conf.spool = getenv("BMAIL_SPOOL");
-	if (conf.spool == NULL) die("BMAIL_SPOOL is not set.");
-	if (chdir(conf.spool) < 0) die("Can't chdir into spool:");
+	if (getenv("BMAIL_DOMAIN") == NULL) die("BMAIL_DOMAIN is not set.");
+	char *spool = getenv("BMAIL_SPOOL");
+	if (spool == NULL) die("BMAIL_SPOOL is not set.");
 	/* Init Maildir */
+	if (chdir(spool) < 0) die("Can't chdir into spool:");
 	updsequence();
 	/* Init master socket and prepare for polling. */
 	sock = openmsock(PORT);

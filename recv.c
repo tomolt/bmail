@@ -7,13 +7,13 @@
 #include <errno.h>
 #include <syslog.h>
 
-#include "conf.h"
 #include "util.h"
 #include "smtp.h"
 #include "mbox.h"
 
 #define RCPT_MAX 100
 
+static char *my_domain;
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
 static char mail_name[UNIQNAME_LEN+1];
@@ -118,7 +118,7 @@ static void dohelo(int ext)
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
-		reply1("250", conf.domain);
+		reply1("250", my_domain);
 	} else {
 		reply1("501", "Syntax Error");
 	}
@@ -142,7 +142,7 @@ static void dorcpt(void)
 		reply1("501", "Syntax Error");
 		return;
 	}
-	if (strcmp(domain, conf.domain) != 0) {
+	if (strcmp(domain, my_domain) != 0) {
 		reply1("550", "User not local"); /* TODO should this be 551? */
 		return;
 	}
@@ -197,9 +197,11 @@ static void dodata(void)
 
 void recvmail(void)
 {
+	my_domain = getenv("BMAIL_DOMAIN");
+	if (my_domain == NULL) exit(-1); /* TODO maybe die() here? */
 	handlesignals(cleanup);
 	reset();
-	reply2("220", conf.domain, "Ready");
+	reply2("220", my_domain, "Ready");
 	for (;;) {
 		char line[COMMAND_LEN];
 		int len;
@@ -230,7 +232,7 @@ void recvmail(void)
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				reply2("221", conf.domain, "Bye");
+				reply2("221", my_domain, "Bye");
 				disconnect();
 			} else {
 				reply1("501", "Syntax Error");
