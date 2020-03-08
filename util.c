@@ -1,5 +1,6 @@
 /* See LICENSE file for copyright and license details. */
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <syslog.h>
@@ -19,7 +20,7 @@ void die(const char *fmt, ...)
 	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
 		syslog(prio, "  %s", strerror(err));
 	}
-	killpg(0, SIGTERM);
+	exit(1);
 }
 
 void ioerr(const char *func)
