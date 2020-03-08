@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 usage="usage: bmail -D domain [-S spool]"
 
