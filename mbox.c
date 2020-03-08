@@ -12,24 +12,8 @@
 #include "smtp.h"
 #include "mbox.h"
 
-static uint32_t sequence;
+unsigned long sequence;
 static uint32_t local;
-
-void updsequence(void)
-{
-	/* Try to read sequence file, if it exists. */
-	sequence = 0;
-	FILE *file = fopen("sequence", "r");
-	if (file != NULL) {
-		fscanf(file, "%"SCNx32, &sequence);
-		fclose(file);
-	}
-	/* Write next sequence number back into the file. */
-	file = fopen("sequence", "w");
-	if (file == NULL) die("Can't write sequence file:");
-	fprintf(file, "%08"PRIx32, sequence + 1);
-	fclose(file);
-}
 
 char *uniqname(void)
 {

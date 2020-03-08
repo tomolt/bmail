@@ -12,19 +12,37 @@
 #include <arpa/inet.h>
 
 #include "util.h"
-#include "mbox.h"
 
 #define PORT 5000
 
 static int sock;
-
-extern void recvmail(void);
 
 static void cleanup(int sig)
 {
 	(void) sig;
 	close(sock);
 	exit(1);
+}
+
+/* Try to read sequence file, if it exists. */
+unsigned long readsequence(void)
+{
+	char buf[8];
+	FILE *file = fopen("sequence", "r");
+	if (file == NULL) return 0;
+	fread(buf, 1, 8, file);
+	unsigned long sequence = atolx(buf);
+	fclose(file);
+	return sequence;
+}
+
+/* Write next sequence number back into the file. */
+void writesequence(unsigned long sequence)
+{
+	FILE *file = fopen("sequence", "w");
+	if (file == NULL) die("Can't write sequence file:");
+	fwrite(lxtoa(sequence + 1), 1, 9, file);
+	fclose(file);
 }
 
 static int openmsock(int port)
@@ -62,7 +80,9 @@ int main()
 	if (spool == NULL) die("BMAIL_SPOOL is not set.");
 	/* Init Maildir */
 	if (chdir(spool) < 0) die("Can't chdir into spool:");
-	updsequence();
+	unsigned long sequence = readsequence();
+	if (setenv("BMAIL_SEQUENCE", lxtoa(sequence), 1) < 0) die("setenv():");
+	writesequence(sequence);
 	/* Init master socket and prepare for polling. */
 	sock = openmsock(PORT);
 	struct pollfd pfds[1];
@@ -91,7 +111,10 @@ int main()
 				ioerr("dup2");
 				exit(0);
 			}
-			recvmail();
+			if (execlp("bmail_recv", "bmail_recv", NULL) < 0) {
+				ioerr("execlp");
+				exit(0);
+			}
 		}
 		close(s);
 	}

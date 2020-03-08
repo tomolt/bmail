@@ -9,3 +9,6 @@ void ioerr(const char *func);
 /* Register a signal handler to be called on termination. */
 void handlesignals(void (*handler)(int));
 
+unsigned long atolx(char *a);
+char *lxtoa(unsigned long lx);
+
