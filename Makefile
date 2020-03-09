@@ -1,19 +1,10 @@
-# TODO config.mk
-PREFIX = /usr/local
+.POSIX:
 
-CC=clang
-LD=clang
-CFLAGS=-g -Wall -Wextra -pedantic
-LDFLAGS=-g
+include config.mk
 
 .PHONY: all clean install uninstall
 
 all: bmaild bmail_recv
-
-clean:
-	rm -f *.o
-	rm -f bmaild
-	rm -f bmail_recv
 
 bmaild: bmaild.o util.o
 bmaild.o: util.h
@@ -22,6 +13,11 @@ bmail_recv.o: util.h smtp.h mbox.h
 mbox.o: util.h smtp.h mbox.h
 smtp.o: smtp.h
 util.o: util.h
+
+clean:
+	rm -f *.o
+	rm -f bmaild
+	rm -f bmail_recv
 
 install: all
 	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
