@@ -24,27 +24,6 @@ static void cleanup(int sig)
 	exit(1);
 }
 
-/* Try to read sequence file, if it exists. */
-unsigned long readsequence(void)
-{
-	char buf[8];
-	FILE *file = fopen("sequence", "r");
-	if (file == NULL) return 0;
-	fread(buf, 1, 8, file);
-	unsigned long sequence = atolx(buf);
-	fclose(file);
-	return sequence;
-}
-
-/* Write next sequence number back into the file. */
-void writesequence(unsigned long sequence)
-{
-	FILE *file = fopen("sequence", "w");
-	if (file == NULL) die("Can't write sequence file:");
-	fwrite(lxtoa(sequence + 1), 1, 9, file);
-	fclose(file);
-}
-
 static int openmsock(int port)
 {
 	/* Init TCP socket. */
@@ -80,9 +59,6 @@ int main()
 	if (spool == NULL) die("BMAIL_SPOOL is not set.");
 	/* Init Maildir */
 	if (chdir(spool) < 0) die("Can't chdir into spool:");
-	unsigned long sequence = readsequence();
-	if (setenv("BMAIL_SEQUENCE", lxtoa(sequence), 1) < 0) die("setenv():");
-	writesequence(sequence);
 	/* Init master socket and prepare for polling. */
 	sock = openmsock(PORT);
 	struct pollfd pfds[1];

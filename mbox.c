@@ -12,20 +12,19 @@
 #include "smtp.h"
 #include "mbox.h"
 
-unsigned long sequence;
 static uint32_t local;
 
 char *uniqname(void)
 {
 	static char buf[UNIQNAME_LEN+1];
 	uint32_t nums[4];
-	/* Uniqueness across boots: */
-	nums[0] = sequence;
-	/* Uniqueness across concurrent processes: */
-	nums[1] = getpid();
+	/* Uniqueness across (possibly concurrent) processes: */
+	nums[0] = getpid();
 	/* Uniqueness despite recycled pids: */
 	/* (Nothing bad happens on overflow here!) */
-	nums[2] = time(NULL);
+	nums[1] = time(NULL);
+	/* Uniqueness in the face of rapid pid-reuse or system clock change: */
+	nums[2] = pcrandom32();
 	/* Uniqueness within a single process: */
 	nums[3] = local++;
 	sprintf(buf, "%"PRIx32".%"PRIx32".%"PRIx32".%"PRIx32,

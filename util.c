@@ -3,9 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <syslog.h>
 #include <signal.h>
 #include <errno.h>
+
+#ifdef __linux__
+# include <sys/random.h>
+#endif
 
 #include "util.h"
 
@@ -87,5 +92,16 @@ char *lxtoa(unsigned long lx)
 		*p = c;
 	}
 	return a;
+}
+
+unsigned long pcrandom32(void)
+{
+#ifdef __linux__
+	uint32_t buf;
+	getrandom(&buf, 4, 0);
+	return buf;
+#else
+	return arc4random();
+#endif
 }
 

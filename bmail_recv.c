@@ -199,9 +199,6 @@ int main()
 {
 	my_domain = getenv("BMAIL_DOMAIN");
 	if (my_domain == NULL) exit(-1); /* TODO maybe die() here? */
-	char *csequence = getenv("BMAIL_SEQUENCE");
-	if (csequence == NULL) exit(-1);
-	sscanf(csequence, "%lx", &sequence); /* TODO error checking */
 	handlesignals(cleanup);
 	reset();
 	reply2("220", my_domain, "Ready");

@@ -12,3 +12,6 @@ void handlesignals(void (*handler)(int));
 unsigned long atolx(char *a);
 char *lxtoa(unsigned long lx);
 
+/* Portably generate cryptographic random 32-bit numbers. */
+unsigned long pcrandom32(void);
+
