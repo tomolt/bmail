@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <syslog.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include "util.h"
 #include "smtp.h"
@@ -14,6 +16,7 @@
 #define RCPT_MAX 100
 
 static char *my_domain;
+static char *my_spool;
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
 static char mail_name[UNIQNAME_LEN+1];
@@ -195,10 +198,22 @@ static void dodata(void)
 	reply1("250", "OK");
 }
 
+static void loadenv(void)
+{
+	if ((my_domain = getenv("BMAIL_DOMAIN")) == NULL) {
+		static char buf[HOST_NAME_MAX];
+		gethostname(buf, HOST_NAME_MAX); /* No error checking neccessary here. */
+		my_domain = buf;
+	}
+	if ((my_spool = getenv("BMAIL_SPOOL")) == NULL) {
+		my_spool = "/var/spool/mail";
+	}
+}
+
 int main()
 {
-	my_domain = getenv("BMAIL_DOMAIN");
-	if (my_domain == NULL) exit(-1); /* TODO maybe die() here? */
+	loadenv();
+	if (chdir(my_spool) < 0) die("Can't chdir into spool:");
 	handlesignals(cleanup);
 	reset();
 	reply2("220", my_domain, "Ready");

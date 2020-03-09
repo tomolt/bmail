@@ -53,12 +53,6 @@ int main()
 	/* Start logging. */
 	openlog("bmaild", 0, LOG_MAIL);
 	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
-	/* Verify that all neccessary environment variables exist. */
-	if (getenv("BMAIL_DOMAIN") == NULL) die("BMAIL_DOMAIN is not set.");
-	char *spool = getenv("BMAIL_SPOOL");
-	if (spool == NULL) die("BMAIL_SPOOL is not set.");
-	/* Init Maildir */
-	if (chdir(spool) < 0) die("Can't chdir into spool:");
 	/* Init master socket and prepare for polling. */
 	sock = openmsock(PORT);
 	struct pollfd pfds[1];
