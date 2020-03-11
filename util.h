@@ -10,10 +10,6 @@ void ioerr(const char *func);
 void handlesignals(void (*handler)(int));
 /* Automatically reap all child processes. */
 void reapchildren(void);
-
-unsigned long atolx(char *a);
-char *lxtoa(unsigned long lx);
-
 /* Portably generate cryptographic random 32-bit numbers. */
 unsigned long pcrandom32(void);
 

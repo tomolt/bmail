@@ -1,23 +1,19 @@
 #!/bin/sh
 
-usage="usage: bmail -D domain [-S spool]"
-
 unset BMAIL_DOMAIN
 unset BMAIL_SPOOL
+unset BMAIL_USER
+unset BMAIL_GROUP
 
-export BMAIL_SPOOL="/var/spool/mail"
-
-while getopts "D:S:h" options; do
-	case "$options" in
-		D) export BMAIL_DOMAIN="$OPTARG" ;;
-		S) export BMAIL_SPOOL="$OPTARG" ;;
-		h) echo $usage; exit 0 ;;
-		\?) echo $usage; exit 1 ;;
-	esac
-done
-if [ -z "$BMAIL_DOMAIN" ] || [ -z "$BMAIL_SPOOL" ]; then
-	echo $usage
-	exit 1
+if [ -z "$BMAILRC" ]; then
+	BMAILRC="/etc/bmailrc"
 fi
+
+if [ -r "$BMAILRC" ]; then
+	set -a
+	. "$BMAILRC"
+	set +a
+fi
+
 exec bmaild
 

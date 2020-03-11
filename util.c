@@ -72,36 +72,6 @@ void reapchildren(void)
 	sigaction(SIGCHLD, &ign, NULL);
 }
 
-unsigned long atolx(char *a)
-{
-	unsigned long lx = 0;
-	for (char *p = a; p < a + 8; ++p) {
-		char c = *p;
-		unsigned long d;
-		if (c >= '0' && c <= '9') d = c - '0';
-		else if (c >= 'A' && c <= 'F') d = c - ('A' - 0xA);
-		else if (c >= 'a' && c <= 'f') d = c - ('a' - 0xA);
-		else break;
-		lx = lx * 0x10 + d;
-	}
-	return lx;
-}
-
-char *lxtoa(unsigned long lx)
-{
-	static char a[9];
-	a[8] = 0;
-	for (char *p = a + 7; p >= a; --p) {
-		unsigned long d = lx % 0x10;
-		lx /= 0x10;
-		char c;
-		if (d < 0xA) c = d + '0';
-		else c = d + ('A' - 0xA);
-		*p = c;
-	}
-	return a;
-}
-
 unsigned long pcrandom32(void)
 {
 #ifdef __linux__
