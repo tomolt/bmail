@@ -8,6 +8,8 @@
 #include <syslog.h>
 #include <unistd.h>
 #include <limits.h>
+#include <pwd.h>
+#include <grp.h>
 
 #include "util.h"
 #include "smtp.h"
@@ -15,6 +17,8 @@
 
 #define RCPT_MAX 100
 
+static struct group *grp = NULL;
+static struct passwd *pwd = NULL;
 static char *my_domain;
 static char *my_spool;
 static char sender_local[LOCAL_LEN+1];
@@ -208,13 +212,55 @@ static void loadenv(void)
 	if ((my_spool = getenv("BMAIL_SPOOL")) == NULL) {
 		my_spool = "/var/spool/mail";
 	}
+	char *user, *group;
+	if ((user = getenv("BMAIL_USER")) == NULL) {
+		user = "nobody";
+	}
+	if ((group = getenv("BMAIL_GROUP")) == NULL) {
+		group = "nogroup";
+	}
+	errno = 0;
+	if (user && !(pwd = getpwnam(user))) {
+		die("getpwnam '%s': %s", user, errno ? strerror(errno) :
+		    "Entry not found");
+	}
+	errno = 0;
+	if (group && !(grp = getgrnam(group))) {
+		die("getgrnam '%s': %s", group, errno ? strerror(errno) :
+		    "Entry not found");
+	}
+}
+
+/* Drop user, group and supplementary groups. Abort if not successful. */
+static void dropprivs(void)
+{
+	/* Drop user, group and supplementary groups in correct order. */
+	if (grp && setgroups(1, &(grp->gr_gid)) < 0) {
+		die("setgroups:");
+	}
+	if (grp && setgid(grp->gr_gid) < 0) {
+		die("setgid:");
+	}
+	if (pwd && setuid(pwd->pw_uid) < 0) {
+		die("setuid:");
+	}
+	/* Make sure priviledge dropping worked. */
+	if (getuid() == 0) {
+		die("Won't run as root user.");
+	}
+	if (getgid() == 0) {
+		die("Won't run as root group.");
+	}
 }
 
 int main()
 {
+	openlog("bmaild", 0, LOG_MAIL);
 	loadenv();
-	if (chdir(my_spool) < 0) die("Can't chdir into spool:");
+	if (chdir(my_spool) < 0) die("chdir:");
+	if (chroot(".") < 0) die("chroot:");
 	handlesignals(cleanup);
+	dropprivs();
 	reset();
 	reply2("220", my_domain, "Ready");
 	for (;;) {

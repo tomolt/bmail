@@ -19,5 +19,5 @@ if [ -z "$BMAIL_DOMAIN" ] || [ -z "$BMAIL_SPOOL" ]; then
 	echo $usage
 	exit 1
 fi
-exec ./bmaild
+exec bmaild
 

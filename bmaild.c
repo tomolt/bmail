@@ -13,8 +13,6 @@
 
 #include "util.h"
 
-#define PORT 5000
-
 static int sock;
 
 static void cleanup(int sig)
@@ -49,18 +47,16 @@ static int openmsock(int port)
 
 int main()
 {
-	setpgid(0, 0);
-	/* Start logging. */
-	openlog("bmaild", 0, LOG_MAIL);
-	syslog(LOG_MAIL | LOG_INFO, "bmaild is starting up.");
 	/* Init master socket and prepare for polling. */
-	sock = openmsock(PORT);
+	sock = openmsock(25);
 	struct pollfd pfds[1];
 	memset(pfds, 0, sizeof(pfds));
 	pfds[0].fd = sock;
 	pfds[0].events = POLLIN;
-	/* Set up termination handlers. */
+	/* General process configuration. */
+	setpgid(0, 0);
 	handlesignals(cleanup);
+	reapchildren();
 	for (;;) {
 		int s = poll(pfds, 1, -1);
 		if (s < 0) {

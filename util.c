@@ -1,12 +1,14 @@
 /* See LICENSE file for copyright and license details. */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <syslog.h>
 #include <signal.h>
 #include <errno.h>
+#include <unistd.h>
 
 #ifdef __linux__
 # include <sys/random.h>
@@ -17,13 +19,12 @@
 void die(const char *fmt, ...)
 {
 	int err = errno;
-	const int prio = LOG_MAIL | LOG_EMERG;
 	va_list va;
 	va_start(va, fmt);
-	vsyslog(prio, fmt, va);
+	vfprintf(stderr, fmt, va);
 	va_end(va);
 	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
-		syslog(prio, "  %s", strerror(err));
+		fprintf(stderr, "  %s", strerror(err));
 	}
 	exit(1);
 }
@@ -59,9 +60,16 @@ void handlesignals(void (*handler)(int))
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGTERM, &sa, NULL);
 	/* Not sure if this is a good idea or not. */
-	/* sigaction(SIGHUP,  &sa, NULL); */
+	sigaction(SIGHUP,  &sa, NULL);
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGQUIT, &sa, NULL);
+}
+
+void reapchildren(void)
+{
+	struct sigaction ign = { .sa_handler = SIG_IGN };
+	sigemptyset(&ign.sa_mask);
+	sigaction(SIGCHLD, &ign, NULL);
 }
 
 unsigned long atolx(char *a)

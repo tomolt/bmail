@@ -8,6 +8,8 @@ void die(const char *fmt, ...);
 void ioerr(const char *func);
 /* Register a signal handler to be called on termination. */
 void handlesignals(void (*handler)(int));
+/* Automatically reap all child processes. */
+void reapchildren(void);
 
 unsigned long atolx(char *a);
 char *lxtoa(unsigned long lx);
