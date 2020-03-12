@@ -17,10 +17,7 @@
 
 #define RCPT_MAX 100
 
-static struct group *grp = NULL;
-static struct passwd *pwd = NULL;
 static char *my_domain;
-static char *my_spool;
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
 static char mail_name[UNIQNAME_LEN+1];
@@ -112,8 +109,7 @@ static int readline(char line[], int max, int *len)
  * until a short enough line could be read. */
 static void readcommand(char line[], int max, int *len)
 {
-	for (;;) {
-		if (readline(line, max, len)) return;
+	while (!readline(line, max, len)) {
 		while (!readline(line, max, len)) {}
 		reply1("500", "Line too long");
 	}
@@ -204,21 +200,25 @@ static void dodata(void)
 
 static void loadenv(void)
 {
+	struct group *grp = NULL;
+	struct passwd *pwd = NULL;
+	char *spool, *user, *group;
+	/* Load config from environment variables, falling back to defaults if neccessary. */
 	if ((my_domain = getenv("BMAIL_DOMAIN")) == NULL) {
 		static char buf[HOST_NAME_MAX];
 		gethostname(buf, HOST_NAME_MAX); /* No error checking neccessary here. */
 		my_domain = buf;
 	}
-	if ((my_spool = getenv("BMAIL_SPOOL")) == NULL) {
-		my_spool = "/var/spool/mail";
+	if ((spool = getenv("BMAIL_SPOOL")) == NULL) {
+		spool = "/var/spool/mail";
 	}
-	char *user, *group;
 	if ((user = getenv("BMAIL_USER")) == NULL) {
 		user = "nobody";
 	}
 	if ((group = getenv("BMAIL_GROUP")) == NULL) {
 		group = "nogroup";
 	}
+	/* Check supplied user and group. */
 	errno = 0;
 	if (user && !(pwd = getpwnam(user))) {
 		die("getpwnam '%s': %s", user, errno ? strerror(errno) :
@@ -229,11 +229,9 @@ static void loadenv(void)
 		die("getgrnam '%s': %s", group, errno ? strerror(errno) :
 		    "Entry not found");
 	}
-}
-
-/* Drop user, group and supplementary groups. Abort if not successful. */
-static void dropprivs(void)
-{
+	/* Chdir into spool an chroot there. */
+	if (chdir(spool) < 0) die("chdir:");
+	if (chroot(".") < 0) die("chroot:");
 	/* Drop user, group and supplementary groups in correct order. */
 	if (grp && setgroups(1, &(grp->gr_gid)) < 0) {
 		die("setgroups:");
@@ -257,10 +255,7 @@ int main()
 {
 	openlog("bmaild", 0, LOG_MAIL);
 	loadenv();
-	if (chdir(my_spool) < 0) die("chdir:");
-	if (chroot(".") < 0) die("chroot:");
 	handlesignals(cleanup);
-	dropprivs();
 	reset();
 	reply2("220", my_domain, "Ready");
 	for (;;) {
