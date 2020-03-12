@@ -15,5 +15,35 @@ if [ -r "$BMAILRC" ]; then
 	set +a
 fi
 
-exec bmaild
+case $1 in
+	start)
+		bmaild &
+		;;
+	stop)
+		killall bmaild
+		;;
+	mkuser)
+		if [ -z "$BMAIL_SPOOL" ]; then BMAIL_SPOOL="/var/spool/mail"; fi
+		if [ -z "$BMAIL_GROUP" ]; then BMAIL_GROUP="nogroup"; fi
+		read -p "Mail user name: " XLOCAL
+		read -p "Responsible UNIX user: " XUSER
+		if [ -z "$XUSER" ]; then XUSER="root"; fi
+		cd "$BMAIL_SPOOL"
+		mkdir "$XLOCAL"
+		cd "$XLOCAL"
+		chown "$XUSER:$BMAIL_GROUP" .
+		chmod 770 .
+		mkdir tmp new cur
+		chown "$XUSER:$BMAIL_GROUP" tmp new cur
+		chmod 770 tmp new cur
+		chmod +t tmp new cur
+		;;
+	*)
+		echo "usage: $0 <command>"
+		echo "where command is one of the following:"
+		echo "    start     Start up the bmail master daemon."
+		echo "    stop      Stop any running running bmail master daemon."
+		echo "    mkuser    Utility to create a new mail user."
+		;;
+esac
 
