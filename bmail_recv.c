@@ -167,11 +167,11 @@ static void dodata(void)
 		reply1("501", "Syntax Error");
 	}
 	reply1("354", "Listening");
-	FILE *files[RCPT_MAX];
+	int files[RCPT_MAX];
 	for (int i = 0; i < rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
 		mailpath(name, rcpt_list[i], "tmp", mail_name);
-		files[i] = fopen(name, "wb"); /* TODO error checking */
+		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
 	}
 	int begs = 1;
 	for (;;) {
@@ -182,12 +182,12 @@ static void dodata(void)
 			++data, --len;
 		}
 		for (int i = 0; i < rcpt_count; ++i) {
-			fwrite(data, 1, len, files[i]); /* TODO error checking */
+			write(files[i], data, len); /* TODO error checking */
 		}
 		begs = ends;
 	}
 	for (int i = 0; i < rcpt_count; ++i) {
-		fclose(files[i]);
+		close(files[i]);
 		char tmpname[MAILPATH_LEN+1];
 		mailpath(tmpname, rcpt_list[i], "tmp", mail_name);
 		char newname[MAILPATH_LEN+1];
