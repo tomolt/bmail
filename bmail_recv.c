@@ -38,27 +38,30 @@ static void cleanup(int sig)
 	exit(1);
 }
 
-static void reply1x(char *code, char *arg1)
-{
-	int len1 = strlen(arg1);
-	int len = len1+7;
-	char buf[len], *p = buf;
-	memcpy(p, code, 3), p += 3;
-	*p = '-', ++p;
-	memcpy(p, arg1, len1), p += len1;
-	memcpy(p, "\r\n\0", 3), p += 3;
-	connsend(buf, len);
-}
-
 static void reply1(char *code, char *arg1)
 {
 	int len1 = strlen(arg1);
-	int len = len1+7;
+	int len = len1+6;
 	char buf[len], *p = buf;
 	memcpy(p, code, 3), p += 3;
 	*p = ' ', ++p;
 	memcpy(p, arg1, len1), p += len1;
-	memcpy(p, "\r\n\0", 3), p += 3;
+	memcpy(p, "\r\n", 2), p += 2;
+	connsend(buf, len);
+}
+
+static void reply2x(char *code, char *arg1, char *arg2)
+{
+	int len1 = strlen(arg1);
+	int len2 = strlen(arg2);
+	int len = len1+len2+7;
+	char buf[len], *p = buf;
+	memcpy(p, code, 3), p += 3;
+	*p = '-', ++p;
+	memcpy(p, arg1, len1), p += len1;
+	*p = ' ', ++p;
+	memcpy(p, arg2, len2), p += len2;
+	memcpy(p, "\r\n", 2), p += 2;
 	connsend(buf, len);
 }
 
@@ -66,14 +69,14 @@ static void reply2(char *code, char *arg1, char *arg2)
 {
 	int len1 = strlen(arg1);
 	int len2 = strlen(arg2);
-	int len = len1+len2+8;
+	int len = len1+len2+7;
 	char buf[len], *p = buf;
 	memcpy(p, code, 3), p += 3;
 	*p = ' ', ++p;
 	memcpy(p, arg1, len1), p += len1;
 	*p = ' ', ++p;
 	memcpy(p, arg2, len2), p += len2;
-	memcpy(p, "\r\n\0", 3), p += 3;
+	memcpy(p, "\r\n", 2), p += 2;
 	connsend(buf, len);
 }
 
@@ -94,12 +97,12 @@ static void dohelo(int ext)
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
-		if (ext) {
-			if (tlsallowed()) {
-				reply1x("250", "STARTTLS");
-			}
+		if (ext && tlsallowed()) {
+			reply2x("250", my_domain, "Hi");
+			reply1 ("250", "STARTTLS");
+		} else {
+			reply2("250", my_domain, "Hi");
 		}
-		reply1("250", my_domain);
 	} else {
 		reply1("501", "Syntax Error");
 	}
@@ -198,11 +201,9 @@ int main()
 			dohelo(1);
 		} else if (pword("STARTTLS")) {
 			if (pcrlf()) {
-				if (starttls() < 0) {
-					reply1("550", "Can't start TLS");
-				} else {
-					reply1("220", "TLS now");
-				}
+				reply1("220", "TLS now");
+				/* TODO Correctly report error to client! */
+				if (starttls() < 0) exit(1);
 			} else {
 				reply1("501", "Syntax Error");
 			}
