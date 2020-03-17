@@ -9,6 +9,8 @@ CPPFLAGS = -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
 CFLAGS = -std=c99 -pedantic -Wall -Wextra -Os
 LDFLAGS = -s
 
+TLSLIBS = -ltls
+
 # installation paths
 PREFIX = /usr/local
 

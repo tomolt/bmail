@@ -11,9 +11,12 @@
 #include "util.h"
 #include "smtp.h"
 #include "mbox.h"
+#include "conf.h"
+#include "conn.h"
 
 #define RCPT_MAX 100
 
+static char my_domain[DOMAIN_LEN+1];
 static char sender_local[LOCAL_LEN+1];
 static char sender_domain[DOMAIN_LEN+1];
 static char mail_name[UNIQNAME_LEN+1];
@@ -31,22 +34,47 @@ static void reset(void)
 static void cleanup(int sig)
 {
 	(void) sig;
-	reset();
+	closeconn();
 	exit(1);
+}
+
+static void reply1x(char *code, char *arg1)
+{
+	int len1 = strlen(arg1);
+	int len = len1+7;
+	char buf[len], *p = buf;
+	memcpy(p, code, 3), p += 3;
+	*p = '-', ++p;
+	memcpy(p, arg1, len1), p += len1;
+	memcpy(p, "\r\n\0", 3), p += 3;
+	connsend(buf, len);
 }
 
 static void reply1(char *code, char *arg1)
 {
-	/* TODO error checking */
-	printf("%s %s\r\n", code, arg1);
-	fflush(stdout);
+	int len1 = strlen(arg1);
+	int len = len1+7;
+	char buf[len], *p = buf;
+	memcpy(p, code, 3), p += 3;
+	*p = ' ', ++p;
+	memcpy(p, arg1, len1), p += len1;
+	memcpy(p, "\r\n\0", 3), p += 3;
+	connsend(buf, len);
 }
 
 static void reply2(char *code, char *arg1, char *arg2)
 {
-	/* TODO error checking */
-	printf("%s %s %s\r\n", code, arg1, arg2);
-	fflush(stdout);
+	int len1 = strlen(arg1);
+	int len2 = strlen(arg2);
+	int len = len1+len2+8;
+	char buf[len], *p = buf;
+	memcpy(p, code, 3), p += 3;
+	*p = ' ', ++p;
+	memcpy(p, arg1, len1), p += len1;
+	*p = ' ', ++p;
+	memcpy(p, arg2, len2), p += len2;
+	memcpy(p, "\r\n\0", 3), p += 3;
+	connsend(buf, len);
 }
 
 /* Block until a line of at most max characters was read.
@@ -66,7 +94,12 @@ static void dohelo(int ext)
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
-		reply1("250", env_domain);
+		if (ext) {
+			if (tlsallowed()) {
+				reply1x("250", "STARTTLS");
+			}
+		}
+		reply1("250", my_domain);
 	} else {
 		reply1("501", "Syntax Error");
 	}
@@ -90,7 +123,7 @@ static void dorcpt(void)
 		reply1("501", "Syntax Error");
 		return;
 	}
-	if (strcmp(domain, env_domain) != 0) {
+	if (strcmp(domain, my_domain) != 0) {
 		reply1("550", "User not local"); /* TODO should this be 551? */
 		return;
 	}
@@ -145,10 +178,15 @@ static void dodata(void)
 
 int main()
 {
+	struct conf conf;
 	openlog("bmaild", 0, LOG_MAIL);
-	loadenv();
 	handlesignals(cleanup);
-	reply2("220", env_domain, "Ready");
+	conf = loadconf(findconf());
+	strcpy(my_domain, conf.domain); /* There *shouldn't* be an overflow here. */
+	openserver(conf);
+	dropprivs(conf);
+	freeconf(conf);
+	reply2("220", my_domain, "Ready");
 	for (;;) {
 		char line[COMMAND_LEN];
 		int len;
@@ -158,6 +196,16 @@ int main()
 			dohelo(0);
 		} else if (pword("EHLO")) {
 			dohelo(1);
+		} else if (pword("STARTTLS")) {
+			if (pcrlf()) {
+				if (starttls() < 0) {
+					reply1("550", "Can't start TLS");
+				} else {
+					reply1("220", "TLS now");
+				}
+			} else {
+				reply1("501", "Syntax Error");
+			}
 		} else if (pword("MAIL")) {
 			domail();
 		} else if (pword("RCPT")) {
@@ -179,7 +227,7 @@ int main()
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				reply2("221", env_domain, "Bye");
+				reply2("221", my_domain, "Bye");
 				exit(0);
 			} else {
 				reply1("501", "Syntax Error");

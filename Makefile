@@ -7,11 +7,17 @@ include config.mk
 all: bmaild bmail_recv
 
 bmaild: bmaild.o util.o
+	$(LD) $(LDFLAGS) $^$> -o $@
+
+bmail_recv: bmail_recv.o mbox.o smtp.o conf.o conn.o util.o
+	$(LD) $(LDFLAGS) $(TLSLIBS) $^$> -o $@
+
 bmaild.o: util.h
-bmail_recv: bmail_recv.o mbox.o smtp.o util.o
-bmail_recv.o: util.h smtp.h mbox.h
+bmail_recv.o: util.h smtp.h mbox.h conf.h conn.h
 mbox.o: util.h smtp.h mbox.h
 smtp.o: smtp.h
+conn.o: conn.h conf.h util.h
+conf.o: conf.h util.h
 util.o: util.h
 
 clean:

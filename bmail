@@ -1,20 +1,5 @@
 #!/bin/sh
 
-unset BMAIL_DOMAIN
-unset BMAIL_SPOOL
-unset BMAIL_USER
-unset BMAIL_GROUP
-
-if [ -z "$BMAILRC" ]; then
-	BMAILRC="/etc/bmailrc"
-fi
-
-if [ -r "$BMAILRC" ]; then
-	set -a
-	. "$BMAILRC"
-	set +a
-fi
-
 case $1 in
 	start)
 		bmaild &
@@ -22,26 +7,11 @@ case $1 in
 	stop)
 		killall bmaild
 		;;
-	mkuser)
-		if [ -z "$BMAIL_SPOOL" ]; then BMAIL_SPOOL="/var/spool/mail"; fi
-		if [ -z "$BMAIL_USER" ]; then BMAIL_USER="nobody"; fi
-		if [ -z "$BMAIL_GROUP" ]; then BMAIL_GROUP="nogroup"; fi
-		read -p "Mail user name: " XLOCAL
-		cd "$BMAIL_SPOOL"
-		mkdir "$XLOCAL"
-		cd "$XLOCAL"
-		chown "$BMAIL_USER:$BMAIL_GROUP" .
-		chmod 750 .
-		mkdir tmp new cur
-		chown "$BMAIL_USER:$BMAIL_GROUP" tmp new cur
-		chmod 750 tmp new cur
-		;;
 	*)
 		echo "usage: $0 <command>"
 		echo "where command is one of the following:"
 		echo "    start     Start up the bmail master daemon."
 		echo "    stop      Stop any running running bmail master daemon."
-		echo "    mkuser    Utility to create a new mail user."
 		;;
 esac
 
