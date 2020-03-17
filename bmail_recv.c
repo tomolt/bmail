@@ -38,46 +38,9 @@ static void cleanup(int sig)
 	exit(1);
 }
 
-static void reply1(char *code, char *arg1)
+static void reply(char *line)
 {
-	int len1 = strlen(arg1);
-	int len = len1+6;
-	char buf[len], *p = buf;
-	memcpy(p, code, 3), p += 3;
-	*p = ' ', ++p;
-	memcpy(p, arg1, len1), p += len1;
-	memcpy(p, "\r\n", 2), p += 2;
-	connsend(buf, len);
-}
-
-static void reply2x(char *code, char *arg1, char *arg2)
-{
-	int len1 = strlen(arg1);
-	int len2 = strlen(arg2);
-	int len = len1+len2+7;
-	char buf[len], *p = buf;
-	memcpy(p, code, 3), p += 3;
-	*p = '-', ++p;
-	memcpy(p, arg1, len1), p += len1;
-	*p = ' ', ++p;
-	memcpy(p, arg2, len2), p += len2;
-	memcpy(p, "\r\n", 2), p += 2;
-	connsend(buf, len);
-}
-
-static void reply2(char *code, char *arg1, char *arg2)
-{
-	int len1 = strlen(arg1);
-	int len2 = strlen(arg2);
-	int len = len1+len2+7;
-	char buf[len], *p = buf;
-	memcpy(p, code, 3), p += 3;
-	*p = ' ', ++p;
-	memcpy(p, arg1, len1), p += len1;
-	*p = ' ', ++p;
-	memcpy(p, arg2, len2), p += len2;
-	memcpy(p, "\r\n", 2), p += 2;
-	connsend(buf, len);
+	connsend(line, strlen(line));
 }
 
 /* Block until a line of at most max characters was read.
@@ -87,7 +50,7 @@ static void readcommand(char line[], int max, int *len)
 {
 	while (!readline(line, max, len)) {
 		while (!readline(line, max, len)) {}
-		reply1("500", "Line too long");
+		reply("500 Line too Long\r\n");
 	}
 }
 
@@ -98,13 +61,17 @@ static void dohelo(int ext)
 	if (phelo(domain)) {
 		syslog(LOG_MAIL | LOG_INFO, "Incoming connection from <%s>.", domain);
 		if (ext && tlsallowed()) {
-			reply2x("250", my_domain, "Hi");
-			reply1 ("250", "STARTTLS");
+			reply("250-");
+			reply(my_domain);
+			reply(" Hi\r\n");
+			reply("250 STARTTLS\r\n");
 		} else {
-			reply2("250", my_domain, "Hi");
+			reply("250 ");
+			reply(my_domain);
+			reply(" Hi\r\n");
 		}
 	} else {
-		reply1("501", "Syntax Error");
+		reply("501 Syntax Error\r\n");
 	}
 }
 
@@ -112,9 +79,9 @@ static void domail(void)
 {
 	if (pmail(sender_local, sender_domain)) {
 		strcpy(mail_name, uniqname());
-		reply1("250", "OK");
+		reply("250 OK\r\n");
 	} else {
-		reply1("501", "Syntax Error");
+		reply("501 Syntax Error\r\n");
 	}
 }
 
@@ -123,31 +90,31 @@ static void dorcpt(void)
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
 	if (!prcpt(local, domain)) {
-		reply1("501", "Syntax Error");
+		reply("501 Syntax Error\r\n");
 		return;
 	}
 	if (strcmp(domain, my_domain) != 0) {
-		reply1("550", "User not local"); /* TODO should this be 551? */
+		reply("550 User not local\r\n"); /* TODO should this be 551? */
 		return;
 	}
 	if (!vrfylocal(local)) {
-		reply1("550", "User non-existant");
+		reply("550 User non-existant\r\n");
 		return;
 	}
 	if (rcpt_count >= RCPT_MAX) {
-		reply1("452", "Too many users");
+		reply("452 Too many users\r\n");
 		return;
 	}
 	strcpy(rcpt_list[rcpt_count++], local);
-	reply1("250", "OK");
+	reply("250 OK\r\n");
 }
 
 static void dodata(void)
 {
 	if (!pcrlf()) {
-		reply1("501", "Syntax Error");
+		reply("501 Syntax Error\r\n");
 	}
-	reply1("354", "Listening");
+	reply("354 Listening\r\n");
 	int files[RCPT_MAX];
 	for (int i = 0; i < rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
@@ -176,20 +143,22 @@ static void dodata(void)
 		rename(tmpname, newname); /* TODO error checking */
 	}
 	reset();
-	reply1("250", "OK");
+	reply("250 OK\r\n");
 }
 
 int main()
 {
 	struct conf conf;
-	openlog("bmaild", 0, LOG_MAIL);
+	openlog("bmail_recv", 0, LOG_MAIL);
 	handlesignals(cleanup);
 	conf = loadconf(findconf());
 	strcpy(my_domain, conf.domain); /* There *shouldn't* be an overflow here. */
 	openserver(conf);
 	dropprivs(conf);
 	freeconf(conf);
-	reply2("220", my_domain, "Ready");
+	reply("220 ");
+	reply(my_domain);
+	reply(" Ready\r\n");
 	for (;;) {
 		char line[COMMAND_LEN];
 		int len;
@@ -201,11 +170,11 @@ int main()
 			dohelo(1);
 		} else if (pword("STARTTLS")) {
 			if (pcrlf()) {
-				reply1("220", "TLS now");
+				reply("220 TLS now\r\n");
 				/* TODO Correctly report error to client! */
 				if (starttls() < 0) exit(1);
 			} else {
-				reply1("501", "Syntax Error");
+				reply("501 Syntax Error\r\n");
 			}
 		} else if (pword("MAIL")) {
 			domail();
@@ -215,26 +184,28 @@ int main()
 			dodata();
 		} else if (pword("NOOP")) {
 			if (pcrlf()) {
-				reply1("250", "OK");
+				reply("250 OK\r\n");
 			} else {
-				reply1("501", "Syntax Error");
+				reply("501 Syntax Error\r\n");
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
 				reset();
-				reply1("250", "OK");
+				reply("250 OK\r\n");
 			} else {
-				reply1("501", "Syntax Error");
+				reply("501 Syntax Error\r\n");
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				reply2("221", my_domain, "Bye");
+				reply("221 ");
+				reply(my_domain);
+				reply(" Bye\r\n");
 				exit(0);
 			} else {
-				reply1("501", "Syntax Error");
+				reply("501 Syntax Error\r\n");
 			}
 		} else {
-			reply1("500", "Unknown Command");
+			reply("500 Unknown Command\r\n");
 		}
 	}
 }
