@@ -17,12 +17,11 @@ static int socks[MAX_SOCKS];
 static struct pollfd pfds[MAX_SOCKS];
 static int nsocks;
 
-static void cleanup(int sig)
+/* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
+static void cleanup()
 {
-	(void) sig;
 	for (int i = 0; i < nsocks; ++i)
 		close(socks[i]);
-	exit(1);
 }
 
 int main()
@@ -71,8 +70,9 @@ int main()
 	}
 	/* General process configuration. */
 	setpgid(0, 0);
-	handlesignals(cleanup);
 	reapchildren();
+	handlesignals(cleanup);
+	atexit(cleanup);
 	for (;;) {
 		if (poll(pfds, nsocks, -1) < 0) {
 			ioerr("poll");

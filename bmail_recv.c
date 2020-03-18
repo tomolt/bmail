@@ -30,11 +30,10 @@ static void reset(void)
 	rcpt_count = 0;
 }
 
-static void cleanup(int sig)
+/* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
+static void cleanup()
 {
-	(void) sig;
 	closeconn();
-	exit(1);
 }
 
 static void reply(char *line)
@@ -150,6 +149,7 @@ int main()
 	struct conf conf;
 	openlog("bmail_recv", 0, LOG_MAIL);
 	handlesignals(cleanup);
+	atexit(cleanup);
 	conf = loadconf(findconf());
 	strcpy(my_domain, conf.domain); /* There *shouldn't* be an overflow here. */
 	openserver(conf);
