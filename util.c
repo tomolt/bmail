@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <syslog.h>
 #include <signal.h>
 #include <errno.h>
 
@@ -31,28 +30,27 @@ void die(const char *fmt, ...)
 void ioerr(const char *func)
 {
 	switch (errno) {
-	case EPIPE:
-	case ECONNRESET: case ETIMEDOUT:
-		abort();
-		break;
 	case EINTR: case EAGAIN:
 #if EAGAIN != EWOULDBLOCK
 	case EWOULDBLOCK:
 #endif
 	case ECONNABORTED:
 		break;
+	case EPIPE:
+	case ECONNRESET: case ETIMEDOUT:
+		exit(1);
+		break;
 	case EMFILE: case ENFILE:
-		syslog(LOG_MAIL | LOG_WARNING, "Running out of file descriptors.");
+		fprintf(stderr, "! Running out of file descriptors.\n");
 		break;
 	case ENOBUFS: case ENOMEM:
-		syslog(LOG_MAIL | LOG_WARNING, "Running out of kernel memory.");
+		fprintf(stderr, "! Running out of kernel memory.\n");
 		break;
 	case ENETDOWN: case ENETUNREACH:
-		syslog(LOG_MAIL | LOG_WARNING, "Network is unreachable.");
+		fprintf(stderr, "! Network is unreachable.\n");
 		break;
 	default:
-		syslog(LOG_MAIL | LOG_CRIT, "Bug: %s:", func);
-		syslog(LOG_MAIL | LOG_CRIT, "  %s", strerror(errno));
+		fprintf(stderr, "! BUG: %s: %s\n", func, strerror(errno));
 		break;
 	}
 }
