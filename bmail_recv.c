@@ -42,12 +42,12 @@ static void cleanup()
 	int duration = (int) difftime(time(NULL), start_time);
 	fprintf(stderr, "%us\t%uV\t%uT\t%uR\t%s\n",
 		duration, total_viols, total_trans, total_rcpts, cl_domain);
-	closeconn();
+	closecn();
 }
 
 static void reply(char *line)
 {
-	connsend(line, strlen(line));
+	cnsend(line, strlen(line));
 }
 
 /* Block until a line of at most max characters was read.
@@ -68,7 +68,7 @@ static void dohelo(int ext)
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		strcpy(cl_domain, domain);
-		if (ext && tlsallowed()) {
+		if (ext && cncantls()) {
 			reply("250-");
 			reply(my_domain);
 			reply(" Hi\r\n");
@@ -169,7 +169,7 @@ int main()
 	atexit(cleanup);
 	conf = loadconf(findconf());
 	strcpy(my_domain, conf.domain); /* There *shouldn't* be an overflow here. */
-	openserver(conf);
+	servercn(conf);
 	dropprivs(conf);
 	freeconf(conf);
 	start_time = time(NULL);
@@ -190,7 +190,7 @@ int main()
 			if (pcrlf()) {
 				reply("220 TLS now\r\n");
 				/* TODO Correctly report error to client! */
-				if (starttls() < 0) exit(1);
+				if (cnstarttls() < 0) exit(1);
 			} else {
 				reply("501 Syntax Error\r\n");
 				++total_viols;

@@ -11,10 +11,10 @@
 #include "conn.h"
 #include "util.h"
 
-static struct tls *sec_master = NULL;
-static struct tls *sec = NULL;
+static struct tls *tls_master = NULL;
+static struct tls *tls_ctx = NULL;
 
-void openserver(struct conf conf)
+void servercn(struct conf conf)
 {
 	if (conf.tls_enable) {
 		struct tls_config *cfg;
@@ -26,58 +26,47 @@ void openserver(struct conf conf)
 			die("tls_config_set_cert_file: %s", tls_config_error(cfg));
 		if (tls_config_set_key_file(cfg, conf.key_file) < 0)
 			die("tls_config_set_key_file: %s", tls_config_error(cfg));
-		if ((sec_master = tls_server()) == NULL)
-			die("tls_server: %s", tls_error(sec_master));
-		if (tls_configure(sec_master, cfg) < 0)
-			die("tls_configure: %s", tls_error(sec_master));
+		if ((tls_master = tls_server()) == NULL)
+			die("tls_server: %s", tls_error(tls_master));
+		if (tls_configure(tls_master, cfg) < 0)
+			die("tls_configure: %s", tls_error(tls_master));
 		tls_config_free(cfg);
 	}
 }
 
-void closeconn(void)
+void closecn(void)
 {
-	if (sec != NULL) {
-		tls_close(sec);
-		tls_free(sec);
+	if (tls_ctx != NULL) {
+		tls_close(tls_ctx);
+		tls_free(tls_ctx);
 	}
-	if (sec_master != NULL) {
-		tls_close(sec_master);
-		tls_free(sec_master);
+	if (tls_master != NULL) {
+		tls_close(tls_master);
+		tls_free(tls_master);
 	}
 }
 
-int starttls(void)
+int cnstarttls(void)
 {
-	if (sec_master == NULL) return -1;
-	if (sec != NULL) return -1;
-	return tls_accept_fds(sec_master, &sec, 0, 1);
+	if (tls_master == NULL) return -1;
+	if (tls_ctx != NULL) return -1;
+	return tls_accept_fds(tls_master, &tls_ctx, 0, 1);
 }
 
-int tlsallowed(void)
+int cncantls(void)
 {
-	return sec_master != NULL;
+	return tls_master != NULL;
 }
 
-int conngetc(void)
+static int cngetc(void)
 {
-	if (sec != NULL) {
+	if (tls_ctx != NULL) {
 		char c;
-		if (tls_read(sec, &c, 1) != 1)
+		if (tls_read(tls_ctx, &c, 1) != 1)
 			return EOF;
 		return c;
 	} else {
 		return getchar();
-	}
-}
-
-void connsend(char *buf, int len)
-{
-	if (sec != NULL) {
-		/* TODO error checking */
-		tls_write(sec, buf, len);
-	} else {
-		/* TODO error checking */
-		write(1, buf, len);
 	}
 }
 
@@ -88,10 +77,10 @@ int readline(char line[], int max, int *len)
 	if (cr) line[i++] = '\r';
 	while (i < max) {
 		errno = 0;
-		int c = conngetc();
+		int c = cngetc();
 		if (c == EOF) {
 			if (errno) ioerr("getchar");
-			else abort();
+			else exit(1);
 		}
 		line[i++] = c;
 		if (cr && c == '\n') {
@@ -104,5 +93,16 @@ int readline(char line[], int max, int *len)
 	if (cr) --i;
 	*len = i;
 	return 0;
+}
+
+void cnsend(char *buf, int len)
+{
+	if (tls_ctx != NULL) {
+		/* TODO error checking */
+		tls_write(tls_ctx, buf, len);
+	} else {
+		/* TODO error checking */
+		write(1, buf, len);
+	}
 }
 

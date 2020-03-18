@@ -2,12 +2,11 @@
 
 /* needs conf.h */
 
-void openserver(struct conf conf);
-void closeconn(void);
-int starttls(void);
-int tlsallowed(void);
-int conngetc(void);
-void connsend(char *buf, int len);
+void servercn(struct conf conf);
+void closecn(void);
+int cnstarttls(void);
+int cncantls(void);
+void cnsend(char *buf, int len);
 /* Read a CRLF-terminated line from stdin into line, and its length into len.
  * The line is not NULL-terminated and may contain any raw byte values,
  * including NULL. If a line is longer than max readline() will only return
