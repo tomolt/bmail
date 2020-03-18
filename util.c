@@ -73,6 +73,7 @@ void reapchildren(void)
 {
 	struct sigaction ign = { .sa_handler = SIG_IGN };
 	sigemptyset(&ign.sa_mask);
+	ign.sa_flags = SA_RESTART;
 	sigaction(SIGCHLD, &ign, NULL);
 }
 
