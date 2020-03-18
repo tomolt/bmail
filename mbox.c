@@ -8,9 +8,8 @@
 #include <sys/stat.h>
 #include <inttypes.h>
 
-#include "util.h"
-#include "smtp.h"
 #include "mbox.h"
+#include "util.h"
 
 static uint32_t local;
 
@@ -39,7 +38,6 @@ int vrfylocal(const char *name)
 	if (name[0] == '.') return 0;
 	for (const char *c = name; *c; ++c) {
 		if (*c == '/') return 0;
-		if (!islocalc(*c)) return 0;
 	}
 	/* Check if a node of that name exists. */
 	struct stat info;

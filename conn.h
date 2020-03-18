@@ -1,3 +1,6 @@
+/* See LICENSE file for copyright and license details. */
+
+/* needs conf.h */
 
 void openserver(struct conf conf);
 void closeconn(void);

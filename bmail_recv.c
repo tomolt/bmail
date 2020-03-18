@@ -3,16 +3,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <syslog.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <syslog.h>
 
-#include "util.h"
-#include "smtp.h"
-#include "mbox.h"
 #include "conf.h"
 #include "conn.h"
+#include "mbox.h"
+#include "smtp.h"
+#include "util.h"
 
 #define RCPT_MAX 100
 

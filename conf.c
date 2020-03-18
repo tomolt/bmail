@@ -1,3 +1,5 @@
+/* See LICENSE file for copyright and license details. */
+
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -8,8 +10,8 @@
 #include <pwd.h>
 #include <grp.h>
 
-#include "util.h"
 #include "conf.h"
+#include "util.h"
 
 static int iskeyc(int c)
 {

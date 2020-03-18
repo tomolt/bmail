@@ -1,13 +1,15 @@
-#include <unistd.h>
+/* See LICENSE file for copyright and license details. */
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <errno.h>
 
 #include <tls.h>
 
-#include "util.h"
 #include "conf.h"
 #include "conn.h"
+#include "util.h"
 
 static struct tls *sec_master = NULL;
 static struct tls *sec = NULL;
