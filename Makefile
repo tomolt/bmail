@@ -1,15 +1,20 @@
+# See LICENSE file for copyright and license details.
+
 .POSIX:
 
 include config.mk
 
 .PHONY: all clean install uninstall
 
-all: bmaild bmail_recv
+all: bmaild bmail_recv bmail_send
 
 bmaild: bmaild.o util.o
 	$(LD) $(LDFLAGS) $^$> -o $@
 
 bmail_recv: bmail_recv.o mbox.o smtp.o conf.o conn.o util.o
+	$(LD) $(LDFLAGS) $(TLSLIBS) $^$> -o $@
+
+bmail_send: bmail_send.o conf.o conn.o util.o
 	$(LD) $(LDFLAGS) $(TLSLIBS) $^$> -o $@
 
 bmaild.o: util.h

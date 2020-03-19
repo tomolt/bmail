@@ -3,6 +3,7 @@
 /* needs conf.h */
 
 void servercn(struct conf conf);
+void clientcn(struct conf conf);
 void closecn(void);
 int cnstarttls(void);
 int cncantls(void);

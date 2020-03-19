@@ -34,6 +34,22 @@ void servercn(struct conf conf)
 	}
 }
 
+void clientcn(struct conf conf)
+{
+	if (conf.tls_enable) {
+		struct tls_config *cfg;
+		if ((cfg = tls_config_new()) == NULL)
+			die("tls_config_new: %s", tls_config_error(cfg));
+		if (tls_config_set_ca_file(cfg, conf.ca_file) < 0)
+			die("tls_config_set_ca_file: %s", tls_config_error(cfg));
+		if ((tls_master = tls_client()) == NULL)
+			die("tls_client: %s", tls_error(tls_master));
+		if (tls_configure(tls_master, cfg) < 0)
+			die("tls_configure: %s", tls_error(tls_master));
+		tls_config_free(cfg);
+	}
+}
+
 void closecn(void)
 {
 	if (tls_ctx != NULL) {
