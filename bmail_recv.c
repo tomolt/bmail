@@ -115,6 +115,13 @@ static void dorcpt(void)
 		++total_viols;
 		return;
 	}
+	for (int i = 0; i < rcpt_count; ++i) {
+		if (strcmp(local, rcpt_list[i]) == 0) {
+			reply("550 Repeated user\r\n");
+			++total_viols;
+			return;
+		}
+	}
 	if (rcpt_count >= RCPT_MAX) {
 		reply("452 Too many users\r\n");
 		return;
