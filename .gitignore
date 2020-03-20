@@ -1,4 +1,5 @@
 *.o
 bmaild
 bmail_recv
+bmail_send
 Maildir/

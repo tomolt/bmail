@@ -74,41 +74,15 @@ int cncantls(void)
 	return tls_master != NULL;
 }
 
-static int cngetc(void)
+void cnrecv(char *buf, int len)
 {
 	if (tls_ctx != NULL) {
-		char c;
-		if (tls_read(tls_ctx, &c, 1) != 1)
-			return EOF;
-		return c;
+		/* TODO error checking */
+		tls_read(tls_ctx, buf, len);
 	} else {
-		return getchar();
+		/* TODO error checking */
+		read(0, buf, len);
 	}
-}
-
-int readline(char line[], int max, int *len)
-{
-	static int cr = 0;
-	int i = 0;
-	if (cr) line[i++] = '\r';
-	while (i < max) {
-		errno = 0;
-		int c = cngetc();
-		if (c == EOF) {
-			if (errno) ioerr("getchar");
-			else exit(1);
-		}
-		line[i++] = c;
-		if (cr && c == '\n') {
-			cr = 0;
-			*len = i;
-			return 1;
-		}
-		cr = (c == '\r');
-	}
-	if (cr) --i;
-	*len = i;
-	return 0;
 }
 
 void cnsend(char *buf, int len)
@@ -119,6 +93,22 @@ void cnsend(char *buf, int len)
 	} else {
 		/* TODO error checking */
 		write(1, buf, len);
+	}
+}
+
+int cnrecvln(char *buf, int max)
+{
+	char c, cr = 0;
+	for (int i = 0; i < max; ++i) {
+		cnrecv(&c, 1);
+		buf[i] = c;
+		if (cr && c == '\n') return 1;
+		cr = (c == '\r');
+	}
+	for (;;) {
+		cnrecv(&c, 1);
+		if (cr && c == '\n') return 0;
+		cr = (c == '\r');
 	}
 }
 

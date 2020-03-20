@@ -50,18 +50,6 @@ static void reply(char *line)
 	cnsend(line, strlen(line));
 }
 
-/* Block until a line of at most max characters was read.
- * Longer lines are discarded and an error is sent to the client
- * until a short enough line could be read. */
-static void readcommand(char line[], int max, int *len)
-{
-	while (!readline(line, max, len)) {
-		while (!readline(line, max, len)) {}
-		reply("500 Line too Long\r\n");
-		++total_viols;
-	}
-}
-
 static void dohelo(int ext)
 {
 	(void) ext;
@@ -144,19 +132,40 @@ static void dodata(void)
 		mailpath(name, rcpt_list[i], "tmp", mail_name);
 		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
 	}
-	int begs = 1;
+	const char *pattern = "\r\n.\r\n";
+	int match = 0;
 	for (;;) {
-		char line[PAGE_LEN], *data = line;
-		int len, ends = readline(line, sizeof(line), &len);
-		if (begs && line[0] == '.') {
-			if (ends && len == 3) break;
-			++data, --len;
+		char page[512];
+		int cnt = 0;
+		while (cnt < 512-4) {
+			char b[5];
+			cnrecv(b, 5 - match);
+			for (int i = 0; i < 5 - match; ++i) {
+				if (b[i] == pattern[match]) {
+					if (++match == 5) {
+						memcpy(page+cnt, pattern, 2), cnt += 2;
+						for (int i = 0; i < rcpt_count; ++i) {
+							write(files[i], page, cnt); /* TODO error checking */
+						}
+						goto endofdata;
+					}
+				} else {
+					switch (match) {
+					case 1: memcpy(page+cnt, pattern, 1), cnt += 1; break;
+					case 2: memcpy(page+cnt, pattern, 2), cnt += 2; break;
+					case 3: memcpy(page+cnt, pattern, 2), cnt += 2; break;
+					case 4: memcpy(page+cnt, "\r\n\r", 3), cnt += 3; break;
+					}
+					page[cnt++] = b[i];
+					match = 0;
+				}
+			}
 		}
 		for (int i = 0; i < rcpt_count; ++i) {
-			write(files[i], data, len); /* TODO error checking */
+			write(files[i], page, cnt); /* TODO error checking */
 		}
-		begs = ends;
 	}
+endofdata:
 	for (int i = 0; i < rcpt_count; ++i) {
 		close(files[i]);
 		char tmpname[MAILPATH_LEN+1];
@@ -186,8 +195,10 @@ int main()
 	reply(" Ready\r\n");
 	for (;;) {
 		char line[COMMAND_LEN];
-		int len;
-		readcommand(line, sizeof(line), &len);
+		while (!cnrecvln(line, sizeof(line))) {
+			reply("500 Line too Long\r\n");
+			++total_viols;
+		}
 		cphead = line;
 		if (pword("HELO")) {
 			dohelo(0);
