@@ -119,19 +119,8 @@ static void dorcpt(void)
 	reply("250 OK\r\n");
 }
 
-static void dodata(void)
+static void acdata(int files[])
 {
-	if (!pcrlf()) {
-		reply("501 Syntax Error\r\n");
-		++total_viols;
-	}
-	reply("354 Listening\r\n");
-	int files[RCPT_MAX];
-	for (int i = 0; i < rcpt_count; ++i) {
-		char name[MAILPATH_LEN+1];
-		mailpath(name, rcpt_list[i], "tmp", mail_name);
-		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
-	}
 	const char *pattern = "\r\n.\r\n";
 	int match = 0;
 	for (;;) {
@@ -139,15 +128,16 @@ static void dodata(void)
 		int cnt = 0;
 		while (cnt < 512-4) {
 			char b[5];
-			cnrecv(b, 5 - match);
-			for (int i = 0; i < 5 - match; ++i) {
+			int bn = 5 - match;
+			cnrecv(b, bn);
+			for (int i = 0; i < bn; ++i) {
 				if (b[i] == pattern[match]) {
 					if (++match == 5) {
 						memcpy(page+cnt, pattern, 2), cnt += 2;
 						for (int i = 0; i < rcpt_count; ++i) {
 							write(files[i], page, cnt); /* TODO error checking */
 						}
-						goto endofdata;
+						return;
 					}
 				} else {
 					switch (match) {
@@ -165,7 +155,22 @@ static void dodata(void)
 			write(files[i], page, cnt); /* TODO error checking */
 		}
 	}
-endofdata:
+}
+
+static void dodata(void)
+{
+	if (!pcrlf()) {
+		reply("501 Syntax Error\r\n");
+		++total_viols;
+	}
+	reply("354 Listening\r\n");
+	int files[RCPT_MAX];
+	for (int i = 0; i < rcpt_count; ++i) {
+		char name[MAILPATH_LEN+1];
+		mailpath(name, rcpt_list[i], "tmp", mail_name);
+		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
+	}
+	acdata(files);
 	for (int i = 0; i < rcpt_count; ++i) {
 		close(files[i]);
 		char tmpname[MAILPATH_LEN+1];

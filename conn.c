@@ -81,7 +81,7 @@ void cnrecv(char *buf, int len)
 		tls_read(tls_ctx, buf, len);
 	} else {
 		/* TODO error checking */
-		read(0, buf, len);
+		fread(buf, len, 1, stdin);
 	}
 }
 
