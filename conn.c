@@ -14,17 +14,17 @@
 static struct tls *tls_master = NULL;
 static struct tls *tls_ctx = NULL;
 
-void servercn(struct conf conf)
+void servercn(const char *conf[])
 {
-	if (conf.tls_enable) {
+	if (yesno(conf[CF_TLS_ENABLE])) {
 		struct tls_config *cfg;
 		if ((cfg = tls_config_new()) == NULL)
 			die("tls_config_new: %s", tls_config_error(cfg));
-		if (tls_config_set_ca_file(cfg, conf.ca_file) < 0)
+		if (tls_config_set_ca_file(cfg, conf[CF_CA_FILE]) < 0)
 			die("tls_config_set_ca_file: %s", tls_config_error(cfg));
-		if (tls_config_set_cert_file(cfg, conf.cert_file) < 0)
+		if (tls_config_set_cert_file(cfg, conf[CF_CERT_FILE]) < 0)
 			die("tls_config_set_cert_file: %s", tls_config_error(cfg));
-		if (tls_config_set_key_file(cfg, conf.key_file) < 0)
+		if (tls_config_set_key_file(cfg, conf[CF_KEY_FILE]) < 0)
 			die("tls_config_set_key_file: %s", tls_config_error(cfg));
 		if ((tls_master = tls_server()) == NULL)
 			die("tls_server: %s", tls_error(tls_master));
@@ -34,13 +34,13 @@ void servercn(struct conf conf)
 	}
 }
 
-void clientcn(struct conf conf)
+void clientcn(const char *conf[])
 {
-	if (conf.tls_enable) {
+	if (yesno(conf[CF_TLS_ENABLE])) {
 		struct tls_config *cfg;
 		if ((cfg = tls_config_new()) == NULL)
 			die("tls_config_new: %s", tls_config_error(cfg));
-		if (tls_config_set_ca_file(cfg, conf.ca_file) < 0)
+		if (tls_config_set_ca_file(cfg, conf[CF_CA_FILE]) < 0)
 			die("tls_config_set_ca_file: %s", tls_config_error(cfg));
 		if ((tls_master = tls_client()) == NULL)
 			die("tls_client: %s", tls_error(tls_master));

@@ -1,20 +1,21 @@
 /* See LICENSE file for copyright and license details. */
 
-struct conf
-{
-	char *_data;
-	char *domain;
-	char *spool;
-	char *user;
-	char *group;
-	char *ca_file;
-	char *cert_file;
-	char *key_file;
-	int tls_enable;
+enum {
+	CF_DOMAIN,
+	CF_SPOOL,
+	CF_USER,
+	CF_GROUP,
+	CF_TLS_ENABLE,
+	CF_CA_FILE,
+	CF_CERT_FILE,
+	CF_KEY_FILE,
+	CF__DATA_,
+	NUM_CF_FIELDS
 };
 
 const char *findconf(void);
-struct conf loadconf(const char *filename);
-void freeconf(struct conf conf);
-void dropprivs(struct conf conf);
+void loadconf(const char *conf[], const char *filename);
+void freeconf(const char *conf[]);
+int yesno(const char *value);
+void dropprivs(const char *conf[]);
 

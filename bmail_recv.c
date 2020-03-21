@@ -126,7 +126,7 @@ static void acdata(int files[])
 	for (;;) {
 		char page[512];
 		int cnt = 0;
-		while (cnt < 512-4) {
+		while (cnt + 4 < (int) sizeof(page)) {
 			char b[5];
 			int bn = 5 - match;
 			cnrecv(b, bn);
@@ -185,16 +185,19 @@ static void dodata(void)
 
 int main()
 {
-	struct conf conf;
-	handlesignals(cleanup);
-	atexit(cleanup);
-	conf = loadconf(findconf());
-	strcpy(my_domain, conf.domain); /* There *shouldn't* be an overflow here. */
+	const char *conf[NUM_CF_FIELDS];
+	loadconf(conf, findconf());
+	strcpy(my_domain, conf[CF_DOMAIN]); /* There *shouldn't* be an overflow here. */
 	servercn(conf);
 	dropprivs(conf);
 	freeconf(conf);
+
+	handlesignals(cleanup);
+	atexit(cleanup);
+
 	start_time = time(NULL);
 	strcpy(cl_domain, "<DOMAIN UNKNOWN>");
+
 	reply("220 ");
 	reply(my_domain);
 	reply(" Ready\r\n");

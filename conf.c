@@ -13,6 +13,28 @@
 #include "conf.h"
 #include "util.h"
 
+static const char *field_names[] = {
+	"domain",
+	"spool",
+	"user",
+	"group",
+	"tls_enable",
+	"ca_file",
+	"cert_file",
+	"key_file",
+};
+
+static const char *field_defaults[] = {
+	"",
+	"/var/spool/mail",
+	"nobody",
+	"nogroup",
+	"NO",
+	"",
+	"",
+	"",
+};
+
 static int iskeyc(int c)
 {
 	if (c >= '0' && c <= '9') return 1;
@@ -27,25 +49,11 @@ static void synerr(void)
 	die("Syntax error in bmailrc.");
 }
 
-static int yesno(char *value)
+const char *findconf(void)
 {
-	if (strcmp(value, "YES") == 0) return 1;
-	if (strcmp(value, "NO") == 0) return 0;
-	die("Config value must be either YES or NO.");
-	return 0;
-}
-
-static void assign(struct conf *conf, char *key, char *value)
-{
-	if (strcmp(key, "domain") == 0) conf->domain = value;
-	else if (strcmp(key, "spool") == 0) conf->spool = value;
-	else if (strcmp(key, "user") == 0) conf->user = value;
-	else if (strcmp(key, "group") == 0) conf->group = value;
-	else if (strcmp(key, "tls_enable") == 0) conf->tls_enable = yesno(value);
-	else if (strcmp(key, "ca_file") == 0) conf->ca_file = value;
-	else if (strcmp(key, "cert_file") == 0) conf->cert_file = value;
-	else if (strcmp(key, "key_file") == 0) conf->key_file = value;
-	else die("bmailrc assigns value to non-option.");
+	const char *bmailrc = getenv("BMAILRC");
+	if (bmailrc == NULL) bmailrc = "/etc/bmail.conf";
+	return bmailrc;
 }
 
 static char *readfile(const char *filename)
@@ -66,23 +74,28 @@ static char *readfile(const char *filename)
 	return data;
 }
 
-const char *findconf(void)
+static void assign(const char *conf[], char *key, char *value)
 {
-	const char *bmailrc = getenv("BMAILRC");
-	if (bmailrc == NULL) bmailrc = "/etc/bmail.conf";
-	return bmailrc;
+	for (int i = 0; i < CF__DATA_; ++i) {
+		if (strcmp(key, field_names[i]) == 0) {
+			conf[i] = value;
+			return;
+		}
+	}
+	die("bmailrc assigns value to non-option.");
 }
 
-struct conf loadconf(const char *filename)
+void loadconf(const char *conf[], const char *filename)
 {
-	struct conf conf = { 0 };
-	conf.spool = "/var/spool/mail";
-	conf.user = "nobody";
-	conf.group = "nogroup";
-	conf._data = readfile(filename);
-	int s = 1;
+	int i, s = 1;
 	char *p, c, *k = NULL, *v = NULL;
-	for (p = conf._data, c = *p; s; c = *++p) {
+	for (i = 0; i < CF__DATA_; ++i) {
+		conf[i] = field_defaults[i];
+	}
+	p = readfile(filename);
+	conf[CF__DATA_] = p;
+	do {
+		c = *p;
 		switch (s) {
 		case 1:
 			if (c == 0) s = 0;
@@ -104,7 +117,7 @@ struct conf loadconf(const char *filename)
 			else if (c != ' ') synerr();
 			break;
 		case 5:
-			if (c == '"') s = 6, *p = 0, assign(&conf, k, v);
+			if (c == '"') s = 6, *p = 0, assign(conf, k, v);
 			else if (c == 0 || c == '\n') synerr();
 			break;
 		case 6:
@@ -118,32 +131,40 @@ struct conf loadconf(const char *filename)
 			else if (c == '\n') s = 1;
 			break;
 		}
-	}
-	return conf;
+		++p;
+	} while (s);
 }
 
-void freeconf(struct conf conf)
+void freeconf(const char *conf[])
 {
-	free(conf._data);
+	free((char *) conf[CF__DATA_]);
 }
 
-void dropprivs(struct conf conf)
+int yesno(const char *value)
+{
+	if (strcmp(value, "YES") == 0) return 1;
+	if (strcmp(value, "NO") == 0) return 0;
+	die("Config value must be either YES or NO.");
+	return 0;
+}
+
+void dropprivs(const char *conf[])
 {
 	struct group *grp = NULL;
 	struct passwd *pwd = NULL;
 	/* Check supplied user and group. */
 	errno = 0;
-	if (conf.user && !(pwd = getpwnam(conf.user))) {
-		die("getpwnam '%s': %s", conf.user, errno ? strerror(errno) :
+	if (!(pwd = getpwnam(conf[CF_USER]))) {
+		die("getpwnam '%s': %s", conf[CF_USER], errno ? strerror(errno) :
 		    "Entry not found");
 	}
 	errno = 0;
-	if (conf.group && !(grp = getgrnam(conf.group))) {
-		die("getgrnam '%s': %s", conf.group, errno ? strerror(errno) :
+	if (!(grp = getgrnam(conf[CF_GROUP]))) {
+		die("getgrnam '%s': %s", conf[CF_GROUP], errno ? strerror(errno) :
 		    "Entry not found");
 	}
 	/* Chdir into spool an chroot there. */
-	if (chdir(conf.spool) < 0) die("chdir:");
+	if (chdir(conf[CF_SPOOL]) < 0) die("chdir:");
 	if (chroot(".") < 0) die("chroot:");
 	/* Drop user, group and supplementary groups in correct order. */
 	if (grp && setgroups(1, &(grp->gr_gid)) < 0) {

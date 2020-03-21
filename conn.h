@@ -1,9 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
-/* needs conf.h */
-
-void servercn(struct conf conf);
-void clientcn(struct conf conf);
+void servercn(const char *conf[]);
+void clientcn(const char *conf[]);
 void closecn(void);
 int cnstarttls(void);
 int cncantls(void);
