@@ -13,9 +13,8 @@
 
 static uint32_t local;
 
-char *uniqname(void)
+void uniqname(char buf[])
 {
-	static char buf[UNIQNAME_LEN+1];
 	uint32_t nums[4];
 	/* Uniqueness across (possibly concurrent) processes: */
 	nums[0] = getpid();
@@ -28,7 +27,6 @@ char *uniqname(void)
 	nums[3] = local++;
 	sprintf(buf, "%"PRIx32".%"PRIx32".%"PRIx32".%"PRIx32,
 		nums[0], nums[1], nums[2], nums[3]);
-	return buf;
 }
 
 int vrfylocal(const char *name)
