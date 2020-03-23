@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 
@@ -110,5 +111,11 @@ int cnrecvln(char *buf, int max)
 		if (cr && c == '\n') return 0;
 		cr = (c == '\r');
 	}
+}
+
+
+void cnsendnt(char *buf)
+{
+	cnsend(buf, strlen(buf));
 }
 

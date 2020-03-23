@@ -52,11 +52,6 @@ static void cleanup()
 	closecn();
 }
 
-static void reply(char *line)
-{
-	cnsend(line, strlen(line));
-}
-
 static void dohelo(int ext)
 {
 	(void) ext;
@@ -64,17 +59,17 @@ static void dohelo(int ext)
 	if (phelo(domain)) {
 		strcpy(tstat->cl_domain, domain);
 		if (ext && cncantls()) {
-			reply("250-");
-			reply(my_domain);
-			reply(" Hi\r\n");
-			reply("250 STARTTLS\r\n");
+			cnsendnt("250-");
+			cnsendnt(my_domain);
+			cnsendnt(" Hi\r\n");
+			cnsendnt("250 STARTTLS\r\n");
 		} else {
-			reply("250 ");
-			reply(my_domain);
-			reply(" Hi\r\n");
+			cnsendnt("250 ");
+			cnsendnt(my_domain);
+			cnsendnt(" Hi\r\n");
 		}
 	} else {
-		reply("501 Syntax Error\r\n");
+		cnsendnt("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
 }
@@ -84,9 +79,9 @@ static void domail(void)
 	if (pmail(mail->sender_local, mail->sender_domain)) {
 		++tstat->total_trans;
 		uniqname(mail->mail_name);
-		reply("250 OK\r\n");
+		cnsendnt("250 OK\r\n");
 	} else {
-		reply("501 Syntax Error\r\n");
+		cnsendnt("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
 }
@@ -96,34 +91,34 @@ static void dorcpt(void)
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
 	if (!prcpt(local, domain)) {
-		reply("501 Syntax Error\r\n");
+		cnsendnt("501 Syntax Error\r\n");
 		++tstat->total_viols;
 		return;
 	}
 	if (strcmp(domain, my_domain) != 0) {
-		reply("550 User not local\r\n"); /* TODO should this be 551? */
+		cnsendnt("550 User not local\r\n"); /* TODO should this be 551? */
 		++tstat->total_viols;
 		return;
 	}
 	if (!vrfylocal(local)) {
-		reply("550 User non-existant\r\n");
+		cnsendnt("550 User non-existant\r\n");
 		++tstat->total_viols;
 		return;
 	}
 	for (int i = 0; i < mail->rcpt_count; ++i) {
 		if (strcmp(local, mail->rcpt_list[i]) == 0) {
-			reply("550 Repeated user\r\n");
+			cnsendnt("550 Repeated user\r\n");
 			++tstat->total_viols;
 			return;
 		}
 	}
 	if (mail->rcpt_count >= RCPT_MAX) {
-		reply("452 Too many users\r\n");
+		cnsendnt("452 Too many users\r\n");
 		return;
 	}
 	++tstat->total_rcpts;
 	strcpy(mail->rcpt_list[mail->rcpt_count++], local);
-	reply("250 OK\r\n");
+	cnsendnt("250 OK\r\n");
 }
 
 static void acdata(int files[])
@@ -167,10 +162,10 @@ static void acdata(int files[])
 static void dodata(void)
 {
 	if (!pcrlf()) {
-		reply("501 Syntax Error\r\n");
+		cnsendnt("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
-	reply("354 Listening\r\n");
+	cnsendnt("354 Listening\r\n");
 	int files[RCPT_MAX];
 	for (int i = 0; i < mail->rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
@@ -187,7 +182,7 @@ static void dodata(void)
 		rename(tmpname, newname); /* TODO error checking */
 	}
 	reset();
-	reply("250 OK\r\n");
+	cnsendnt("250 OK\r\n");
 }
 
 int main()
@@ -211,13 +206,13 @@ int main()
 	tstat->start_time = time(NULL);
 	strcpy(tstat->cl_domain, "<DOMAIN UNKNOWN>");
 
-	reply("220 ");
-	reply(my_domain);
-	reply(" Ready\r\n");
+	cnsendnt("220 ");
+	cnsendnt(my_domain);
+	cnsendnt(" Ready\r\n");
 	for (;;) {
 		char line[COMMAND_LEN];
 		while (!cnrecvln(line, sizeof(line))) {
-			reply("500 Line too Long\r\n");
+			cnsendnt("500 Line too Long\r\n");
 			++tstat->total_viols;
 		}
 		cphead = line;
@@ -227,11 +222,11 @@ int main()
 			dohelo(1);
 		} else if (pword("STARTTLS")) {
 			if (pcrlf()) {
-				reply("220 TLS now\r\n");
+				cnsendnt("220 TLS now\r\n");
 				/* TODO Correctly report error to client! */
 				if (cnstarttls() < 0) exit(1);
 			} else {
-				reply("501 Syntax Error\r\n");
+				cnsendnt("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("MAIL")) {
@@ -242,31 +237,31 @@ int main()
 			dodata();
 		} else if (pword("NOOP")) {
 			if (pcrlf()) {
-				reply("250 OK\r\n");
+				cnsendnt("250 OK\r\n");
 			} else {
-				reply("501 Syntax Error\r\n");
+				cnsendnt("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
 				reset();
-				reply("250 OK\r\n");
+				cnsendnt("250 OK\r\n");
 			} else {
-				reply("501 Syntax Error\r\n");
+				cnsendnt("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				reply("221 ");
-				reply(my_domain);
-				reply(" Bye\r\n");
+				cnsendnt("221 ");
+				cnsendnt(my_domain);
+				cnsendnt(" Bye\r\n");
 				exit(0);
 			} else {
-				reply("501 Syntax Error\r\n");
+				cnsendnt("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else {
-			reply("500 Unknown Command\r\n");
+			cnsendnt("500 Unknown Command\r\n");
 			++tstat->total_viols;
 		}
 	}
