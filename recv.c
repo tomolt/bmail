@@ -124,37 +124,37 @@ static void dorcpt(void)
 static void acdata(int files[])
 {
 	const char *pattern = "\r\n.\r\n";
-	int match = 0;
+	char inb[512], outb[512], *inp = inb;
+	int inc = 0, outc = 0, match = 0;
 	for (;;) {
-		char page[512];
-		int cnt = 0;
-		while (cnt + 8 < (int) sizeof(page)) {
-			char b[5];
-			int bn = cnrecv(b, 5);
-			for (int i = 0; i < bn; ++i) {
-				if (b[i] == pattern[match]) {
-					if (++match == 5) {
-						memcpy(page+cnt, pattern, 2), cnt += 2;
-						for (int i = 0; i < mail->rcpt_count; ++i) {
-							write(files[i], page, cnt); /* TODO error checking */
-						}
-						return;
-					}
-				} else {
-					switch (match) {
-					case 1: memcpy(page+cnt, pattern, 1), cnt += 1; break;
-					case 2: memcpy(page+cnt, pattern, 2), cnt += 2; break;
-					case 3: memcpy(page+cnt, pattern, 2), cnt += 2; break;
-					case 4: memcpy(page+cnt, "\r\n\r", 3), cnt += 3; break;
-					}
-					page[cnt++] = b[i];
-					match = 0;
-				}
+		if (inp >= inb + inc) {
+			inc = cnrecv(inb, sizeof(inb));
+			inp = inb;
+		}
+		if (outc + 4 > (int) sizeof(outb)) {
+			for (int i = 0; i < mail->rcpt_count; ++i) {
+				write(files[i], outb, outc); /* TODO error checking & resume after partial write */
 			}
+			outc = 0;
 		}
-		for (int i = 0; i < mail->rcpt_count; ++i) {
-			write(files[i], page, cnt); /* TODO error checking */
+		if (*inp == pattern[match]) {
+			if (++match == 5) {
+				for (int i = 0; i < mail->rcpt_count; ++i) {
+					write(files[i], outb, outc); /* TODO error checking & resume after partial write */
+				}
+				return;
+			}
+		} else {
+			switch (match) {
+			case 1: memcpy(outb+outc, "\r", 1), outc += 1; break;
+			case 2: memcpy(outb+outc, "\r\n", 2), outc += 2; break;
+			case 3: memcpy(outb+outc, "\r\n", 2), outc += 2; break;
+			case 4: memcpy(outb+outc, "\r\n\r", 3), outc += 3; break;
+			}
+			outb[outc++] = *inp;
+			match = 0;
 		}
+		++inp;
 	}
 }
 
