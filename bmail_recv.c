@@ -128,10 +128,9 @@ static void acdata(int files[])
 	for (;;) {
 		char page[512];
 		int cnt = 0;
-		while (cnt + 4 < (int) sizeof(page)) {
+		while (cnt + 8 < (int) sizeof(page)) {
 			char b[5];
-			int bn = 5 - match;
-			cnrecv(b, bn);
+			int bn = cnrecv(&c, 5);
 			for (int i = 0; i < bn; ++i) {
 				if (b[i] == pattern[match]) {
 					if (++match == 5) {

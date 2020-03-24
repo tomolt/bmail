@@ -75,14 +75,14 @@ int cncantls(void)
 	return tls_master != NULL;
 }
 
-void cnrecv(char *buf, int len)
+int cnrecv(char *buf, int max)
 {
 	if (tls_ctx != NULL) {
 		/* TODO error checking */
-		tls_read(tls_ctx, buf, len);
+		return tls_read(tls_ctx, buf, max);
 	} else {
 		/* TODO error checking */
-		fread(buf, len, 1, stdin);
+		return read(0, buf, max);
 	}
 }
 
@@ -97,6 +97,7 @@ void cnsend(char *buf, int len)
 	}
 }
 
+/* FIXME cnrecvln() currently assumes cnrecv() always returns max number of characters. */
 int cnrecvln(char *buf, int max)
 {
 	char c, cr = 0;
