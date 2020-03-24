@@ -17,15 +17,6 @@
 
 static char my_domain[DOMAIN_LEN+1];
 
-struct mail
-{
-	char sender_local[LOCAL_LEN+1];
-	char sender_domain[DOMAIN_LEN+1];
-	char mail_name[UNIQNAME_LEN+1];
-	char rcpt_list[RCPT_MAX][LOCAL_LEN+1];
-	unsigned char rcpt_count;
-};
-
 struct tstat
 {
 	time_t start_time;
@@ -35,13 +26,17 @@ struct tstat
 	char cl_domain[DOMAIN_LEN+1];
 };
 
-struct mail *mail;
-struct tstat *tstat;
-
-static void reset(void)
+struct mail
 {
-	memset(mail, 0, sizeof(*mail));
-}
+	char sender_local[LOCAL_LEN+1];
+	char sender_domain[DOMAIN_LEN+1];
+	char mail_name[UNIQNAME_LEN+1];
+	char rcpt_list[RCPT_MAX][LOCAL_LEN+1];
+	unsigned char rcpt_count;
+};
+
+struct tstat *tstat;
+struct mail *mail;
 
 /* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
 static void cleanup()
@@ -123,13 +118,12 @@ static void dorcpt(void)
 
 static void acdata(int files[])
 {
-	const char *pattern = "\r\n.\r\n";
-	char inb[512], outb[512], *inp = inb;
-	int inc = 0, outc = 0, match = 0;
+	char inb[512], outb[512];
+	int inc = 0, ini = 0, outc = 0, match = 0;
 	for (;;) {
-		if (inp >= inb + inc) {
+		if (ini >= inc) {
 			inc = cnrecv(inb, sizeof(inb));
-			inp = inb;
+			ini = 0;
 		}
 		if (outc + 4 > (int) sizeof(outb)) {
 			for (int i = 0; i < mail->rcpt_count; ++i) {
@@ -137,7 +131,7 @@ static void acdata(int files[])
 			}
 			outc = 0;
 		}
-		if (*inp == pattern[match]) {
+		if (inb[ini] == "\r\n.\r\n"[match]) {
 			if (++match == 5) {
 				for (int i = 0; i < mail->rcpt_count; ++i) {
 					write(files[i], outb, outc); /* TODO error checking & resume after partial write */
@@ -151,10 +145,10 @@ static void acdata(int files[])
 			case 3: memcpy(outb+outc, "\r\n", 2), outc += 2; break;
 			case 4: memcpy(outb+outc, "\r\n\r", 3), outc += 3; break;
 			}
-			outb[outc++] = *inp;
+			outb[outc++] = inb[ini];
 			match = 0;
 		}
-		++inp;
+		++ini;
 	}
 }
 
@@ -180,15 +174,16 @@ static void dodata(void)
 		mailpath(newname, mail->rcpt_list[i], "new", mail->mail_name);
 		rename(tmpname, newname); /* TODO error checking */
 	}
-	reset();
+	memset(mail, 0, sizeof(*mail));
 	cnsendnt("250 OK\r\n");
 }
 
 void recvmail(int socket)
 {
-	struct mail mail_buf;
-	struct tstat tstat_buf;
 	const char *conf[NUM_CF_FIELDS];
+	struct tstat tstat_buf;
+	struct mail mail_buf;
+	char line[COMMAND_LEN];
 
 	loadconf(conf, findconf());
 	strcpy(my_domain, conf[CF_DOMAIN]); /* There *shouldn't* be an overflow here. */
@@ -196,20 +191,21 @@ void recvmail(int socket)
 	dropprivs(conf);
 	freeconf(conf);
 
-	mail = &mail_buf;
 	tstat = &tstat_buf;
+	memset(tstat, 0, sizeof(*tstat));
+	tstat->start_time = time(NULL);
+	strcpy(tstat->cl_domain, "<DOMAIN UNKNOWN>");
+
+	mail = &mail_buf;
+	memset(mail, 0, sizeof(*mail));
 
 	handlesignals(cleanup);
 	atexit(cleanup);
-
-	tstat->start_time = time(NULL);
-	strcpy(tstat->cl_domain, "<DOMAIN UNKNOWN>");
 
 	cnsendnt("220 ");
 	cnsendnt(my_domain);
 	cnsendnt(" Ready\r\n");
 	for (;;) {
-		char line[COMMAND_LEN];
 		while (!cnrecvln(line, sizeof(line))) {
 			cnsendnt("500 Line too Long\r\n");
 			++tstat->total_viols;
@@ -243,7 +239,7 @@ void recvmail(int socket)
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
-				reset();
+				memset(mail, 0, sizeof(*mail));
 				cnsendnt("250 OK\r\n");
 			} else {
 				cnsendnt("501 Syntax Error\r\n");

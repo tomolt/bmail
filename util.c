@@ -56,13 +56,16 @@ void handlesignals(void (*handler)(int))
 	sigaction(SIGHUP,  &sa, NULL);
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGQUIT, &sa, NULL);
+
+	struct sigaction ign = { .sa_handler = SIG_IGN };
+	sigemptyset(&ign.sa_mask);
+	sigaction(SIGPIPE, &ign, NULL);
 }
 
 void reapchildren(void)
 {
 	struct sigaction ign = { .sa_handler = SIG_IGN };
 	sigemptyset(&ign.sa_mask);
-	ign.sa_flags = SA_RESTART;
 	sigaction(SIGCHLD, &ign, NULL);
 }
 

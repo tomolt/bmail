@@ -138,7 +138,6 @@ int cnrecvln(char *buf, int max)
 	}
 }
 
-
 void cnsendnt(char *buf)
 {
 	int len = strlen(buf);
