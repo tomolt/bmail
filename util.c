@@ -22,7 +22,7 @@ void die(const char *fmt, ...)
 	vfprintf(stderr, fmt, va);
 	va_end(va);
 	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
-		fprintf(stderr, "  %s", strerror(err));
+		fprintf(stderr, " %s\n", strerror(err));
 	}
 	exit(1);
 }
@@ -40,17 +40,8 @@ void ioerr(const char *func)
 	case ECONNRESET: case ETIMEDOUT:
 		exit(1);
 		break;
-	case EMFILE: case ENFILE:
-		fprintf(stderr, "! Running out of file descriptors.\n");
-		break;
-	case ENOBUFS: case ENOMEM:
-		fprintf(stderr, "! Running out of kernel memory.\n");
-		break;
-	case ENETDOWN: case ENETUNREACH:
-		fprintf(stderr, "! Network is unreachable.\n");
-		break;
 	default:
-		fprintf(stderr, "! BUG: %s: %s\n", func, strerror(errno));
+		fprintf(stderr, "! %s: %s\n", func, strerror(errno));
 		break;
 	}
 }

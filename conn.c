@@ -16,6 +16,12 @@ static int sock;
 static struct tls *tls_master = NULL;
 static struct tls *tls_ctx = NULL;
 
+static void tlserr(const char *func)
+{
+	fprintf(stderr, "%s: %s\n", func, tls_error(tls_ctx));
+	exit(1);
+}
+
 void servercn(const char *conf[], int psock)
 {
 	sock = psock;
@@ -81,46 +87,64 @@ int cncantls(void)
 
 int cnrecv(char *buf, int max)
 {
+	ssize_t s;
 	if (tls_ctx != NULL) {
-		/* TODO error checking */
-		return tls_read(tls_ctx, buf, max);
+		s = tls_read(tls_ctx, buf, max);
+		if (s < 0) tlserr("tls_read");
 	} else {
-		/* TODO error checking */
-		return read(sock, buf, max);
+		s = read(sock, buf, max);
+		if (s < 0) ioerr("read");
 	}
+	if (s == 0) {
+		exit(1);
+	}
+	return (int) s;
 }
 
-void cnsend(char *buf, int len)
+int cnsend(char *buf, int max)
 {
+	ssize_t s;
 	if (tls_ctx != NULL) {
-		/* TODO error checking */
-		tls_write(tls_ctx, buf, len);
+		s = tls_write(tls_ctx, buf, max);
+		if (s < 0) tlserr("tls_write");
 	} else {
-		/* TODO error checking */
-		write(sock, buf, len);
+		s = write(sock, buf, max);
+		if (s < 0) ioerr("write");
 	}
+	if (s == 0) {
+		exit(1);
+	}
+	return (int) s;
 }
 
-/* FIXME cnrecvln() currently assumes cnrecv() always returns max number of characters. */
 int cnrecvln(char *buf, int max)
 {
-	char c, cr = 0;
-	for (int i = 0; i < max; ++i) {
-		cnrecv(&c, 1);
-		buf[i] = c;
-		if (cr && c == '\n') return 1;
-		cr = (c == '\r');
+	int cr = 0;
+	while (max > 0) {
+		int adv = cnrecv(buf, max);
+		for (int i = 0; i < adv; ++i) {
+			if (cr && buf[i] == '\n') return 1;
+			cr = (buf[i] == '\r');
+		}
+		buf += adv, max -= adv;
 	}
 	for (;;) {
-		cnrecv(&c, 1);
-		if (cr && c == '\n') return 0;
-		cr = (c == '\r');
+		char spill[128];
+		int adv = cnrecv(spill, sizeof(spill));
+		for (int i = 0; i < adv; ++i) {
+			if (cr && spill[i] == '\n') return 0;
+			cr = (spill[i] == '\r');
+		}
 	}
 }
 
 
 void cnsendnt(char *buf)
 {
-	cnsend(buf, strlen(buf));
+	int len = strlen(buf);
+	while (len > 0) {
+		int adv = cnsend(buf, len);
+		buf += adv, len -= adv;
+	}
 }
 
