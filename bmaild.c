@@ -17,6 +17,8 @@ static int socks[MAX_SOCKS];
 static struct pollfd pfds[MAX_SOCKS];
 static int nsocks;
 
+extern void recvmail(int socket);
+
 /* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
 static void cleanup()
 {
@@ -89,15 +91,7 @@ int main()
 			if (pid < 0) {
 				ioerr("fork");
 			} else if (pid == 0) {
-				/* Redirect child stdin & stdout to the socket. */
-				if (dup2(s, 0) < 0 || dup2(s, 1) < 0) {
-					ioerr("dup2");
-					exit(0);
-				}
-				if (execlp("bmail_recv", "bmail_recv", NULL) < 0) {
-					ioerr("execlp");
-					exit(0);
-				}
+				recvmail(s);
 			}
 			close(s);
 		}

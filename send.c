@@ -14,11 +14,11 @@ static void cleanup()
 	closecn();
 }
 
-int main()
+void sendmail(int sock)
 {
 	const char *conf[NUM_CF_FIELDS];
 	loadconf(conf, findconf());
-	clientcn(conf);
+	clientcn(conf, sock);
 	dropprivs(conf);
 	freeconf(conf);
 

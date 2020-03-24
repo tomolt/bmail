@@ -130,7 +130,7 @@ static void acdata(int files[])
 		int cnt = 0;
 		while (cnt + 8 < (int) sizeof(page)) {
 			char b[5];
-			int bn = cnrecv(&c, 5);
+			int bn = cnrecv(b, 5);
 			for (int i = 0; i < bn; ++i) {
 				if (b[i] == pattern[match]) {
 					if (++match == 5) {
@@ -184,7 +184,7 @@ static void dodata(void)
 	cnsendnt("250 OK\r\n");
 }
 
-int main()
+void recvmail(int socket)
 {
 	struct mail mail_buf;
 	struct tstat tstat_buf;
@@ -192,7 +192,7 @@ int main()
 
 	loadconf(conf, findconf());
 	strcpy(my_domain, conf[CF_DOMAIN]); /* There *shouldn't* be an overflow here. */
-	servercn(conf);
+	servercn(conf, socket);
 	dropprivs(conf);
 	freeconf(conf);
 

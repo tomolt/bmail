@@ -1,7 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
-void servercn(const char *conf[]);
-void clientcn(const char *conf[]);
+void servercn(const char *conf[], int psock);
+void clientcn(const char *conf[], int psock);
 void closecn(void);
 int cnstarttls(void);
 int cncantls(void);

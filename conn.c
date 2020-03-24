@@ -12,11 +12,13 @@
 #include "conn.h"
 #include "util.h"
 
+static int sock;
 static struct tls *tls_master = NULL;
 static struct tls *tls_ctx = NULL;
 
-void servercn(const char *conf[])
+void servercn(const char *conf[], int psock)
 {
+	sock = psock;
 	if (yesno(conf[CF_TLS_ENABLE])) {
 		struct tls_config *cfg;
 		if ((cfg = tls_config_new()) == NULL)
@@ -35,8 +37,9 @@ void servercn(const char *conf[])
 	}
 }
 
-void clientcn(const char *conf[])
+void clientcn(const char *conf[], int psock)
 {
+	sock = psock;
 	if (yesno(conf[CF_TLS_ENABLE])) {
 		struct tls_config *cfg;
 		if ((cfg = tls_config_new()) == NULL)
@@ -61,13 +64,14 @@ void closecn(void)
 		tls_close(tls_master);
 		tls_free(tls_master);
 	}
+	close(sock);
 }
 
 int cnstarttls(void)
 {
 	if (tls_master == NULL) return -1;
 	if (tls_ctx != NULL) return -1;
-	return tls_accept_fds(tls_master, &tls_ctx, 0, 1);
+	return tls_accept_socket(tls_master, &tls_ctx, sock);
 }
 
 int cncantls(void)
@@ -82,7 +86,7 @@ int cnrecv(char *buf, int max)
 		return tls_read(tls_ctx, buf, max);
 	} else {
 		/* TODO error checking */
-		return read(0, buf, max);
+		return read(sock, buf, max);
 	}
 }
 
@@ -93,7 +97,7 @@ void cnsend(char *buf, int len)
 		tls_write(tls_ctx, buf, len);
 	} else {
 		/* TODO error checking */
-		write(1, buf, len);
+		write(sock, buf, len);
 	}
 }
 
