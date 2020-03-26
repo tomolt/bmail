@@ -30,13 +30,8 @@ void die(const char *fmt, ...)
 void ioerr(const char *func)
 {
 	switch (errno) {
-	case EINTR: case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-	case EWOULDBLOCK:
-#endif
-	case ECONNABORTED:
+	case EINTR: case EAGAIN: case ECONNABORTED:
 		break;
-	case EPIPE:
 	case ECONNRESET: case ETIMEDOUT:
 		exit(1);
 		break;
@@ -52,14 +47,10 @@ void handlesignals(void (*handler)(int))
 	sigemptyset(&sa.sa_mask);
 	sigaction(SIGABRT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
-	/* Not sure if this is a good idea or not. */
-	sigaction(SIGHUP,  &sa, NULL);
+	/* sigaction(SIGHUP,  &sa, NULL); */
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGQUIT, &sa, NULL);
-
-	struct sigaction ign = { .sa_handler = SIG_IGN };
-	sigemptyset(&ign.sa_mask);
-	sigaction(SIGPIPE, &ign, NULL);
+	sigaction(SIGPIPE, &sa, NULL);
 }
 
 void reapchildren(void)

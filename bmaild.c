@@ -1,33 +1,43 @@
 /* See LICENSE file for copyright and license details. */
 
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+/* #include <signal.h> */
+
+#include <tls.h>
 
 #include "util.h"
+#include "conf.h"
+#include "conn.h"
 
 #define MAX_SOCKS 10
 
+char my_domain[256];
+
 static const char *ports[] = { "25", "587", NULL };
 
+static struct tls *tlssrv = NULL;
 static int socks[MAX_SOCKS];
 static struct pollfd pfds[MAX_SOCKS];
 static int nsocks;
 
-extern void recvmail(int socket);
+extern void recvmail(void);
 
-/* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
-static void cleanup()
+static void teardown(int sig)
 {
-	for (int i = 0; i < nsocks; ++i)
-		close(socks[i]);
+	(void) sig;
+	/* kill(0, sig); */
+	_exit(1);
 }
 
 int main()
 {
+	const char *conf[NUM_CF_FIELDS];
+	struct tls_config *tlscfg;
+
 	const int yes = 1;
 	for (int p = 0; ports[p] != NULL; ++p) {
 		struct addrinfo hints, *list, *ai;
@@ -51,8 +61,13 @@ int main()
 				if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(yes)) < 0)
 					die("Can't disable ipv4-mapped ipv6:");
 			}
+			/* Set close-on-exec flag so child processes don't have access to the master sockets. */
+			int flags = fcntl(sock, F_GETFD, 0);
+			if (flags < 0) die("fcntl:");
+			flags = fcntl(sock, F_SETFD, flags | FD_CLOEXEC);
+			if (flags < 0) die("fcntl:");
 			/* Configure socket to be non-blocking. */
-			int flags = fcntl(sock, F_GETFL, 0);
+			flags = fcntl(sock, F_GETFL, 0);
 			if (flags < 0) die("fcntl:");
 			flags = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 			if (flags < 0) die("fcntl:");
@@ -70,11 +85,24 @@ int main()
 		}
 		freeaddrinfo(list);
 	}
+	/* Loading the config file. */
+	loadconf(conf, findconf());
+	if ((tlscfg = conftls(conf)) != NULL) {
+		if ((tlssrv = tls_server()) == NULL)
+			die("tls_server: %s", tls_error(tlssrv));
+		if (tls_configure(tlssrv, tlscfg) < 0)
+			die("tls_configure: %s", tls_error(tlssrv));
+		tls_config_free(tlscfg);
+	}
+	if (strlen(conf[CF_DOMAIN]) > sizeof(my_domain))
+		die("Domain name is too long.");
+	strcpy(my_domain, conf[CF_DOMAIN]);
+	dropprivs(conf);
+	freeconf(conf);
 	/* General process configuration. */
 	setpgid(0, 0);
 	reapchildren();
-	handlesignals(cleanup);
-	atexit(cleanup);
+	handlesignals(teardown);
 	for (;;) {
 		if (poll(pfds, nsocks, -1) < 0) {
 			ioerr("poll");
@@ -91,11 +119,16 @@ int main()
 			if (pid < 0) {
 				ioerr("fork");
 			} else if (pid == 0) {
-				recvmail(s);
+				cnsock = s;
+				if (tlssrv != NULL) {
+					tls_accept_socket(tlssrv, &cntls, cnsock); /* TODO error checkng */
+				}
+				cread = cread_plain;
+				cwrite = cwrite_plain;
+				recvmail();
 			}
 			close(s);
 		}
 	}
-	return 0;
 }
 

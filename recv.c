@@ -7,7 +7,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "conf.h"
+#include <tls.h>
+
 #include "conn.h"
 #include "mbox.h"
 #include "smtp.h"
@@ -15,7 +16,7 @@
 
 #define RCPT_MAX 100
 
-static char my_domain[DOMAIN_LEN+1];
+extern char my_domain[256];
 
 struct tstat
 {
@@ -26,57 +27,47 @@ struct tstat
 	char cl_domain[DOMAIN_LEN+1];
 };
 
-struct mail
+struct envel
 {
+	char mail_name[UNIQNAME_LEN+1];
 	char sender_local[LOCAL_LEN+1];
 	char sender_domain[DOMAIN_LEN+1];
-	char mail_name[UNIQNAME_LEN+1];
 	char rcpt_list[RCPT_MAX][LOCAL_LEN+1];
-	unsigned char rcpt_count;
+	int rcpt_count;
 };
 
-struct tstat *tstat;
-struct mail *mail;
-
-/* Intentionally empty argument list to allow cleanup() to be used as a signal handler. */
-static void cleanup()
-{
-	int duration = (int) difftime(time(NULL), tstat->start_time);
-	fprintf(stderr, "%us\t%uV\t%uT\t%uR\t%s\n",
-		duration, tstat->total_viols, tstat->total_trans, tstat->total_rcpts, tstat->cl_domain);
-	closecn();
-}
+static struct tstat *tstat;
+static struct envel *envel;
 
 static void dohelo(int ext)
 {
-	(void) ext;
 	char domain[DOMAIN_LEN+1];
 	if (phelo(domain)) {
 		strcpy(tstat->cl_domain, domain);
-		if (ext && cncantls()) {
-			cnsendnt("250-");
-			cnsendnt(my_domain);
-			cnsendnt(" Hi\r\n");
-			cnsendnt("250 STARTTLS\r\n");
+		if (ext && cntls != NULL) {
+			cwritent("250-");
+			cwritent(my_domain);
+			cwritent(" Hi\r\n");
+			cwritent("250 STARTTLS\r\n");
 		} else {
-			cnsendnt("250 ");
-			cnsendnt(my_domain);
-			cnsendnt(" Hi\r\n");
+			cwritent("250 ");
+			cwritent(my_domain);
+			cwritent(" Hi\r\n");
 		}
 	} else {
-		cnsendnt("501 Syntax Error\r\n");
+		cwritent("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
 }
 
 static void domail(void)
 {
-	if (pmail(mail->sender_local, mail->sender_domain)) {
+	if (pmail(envel->sender_local, envel->sender_domain)) {
 		++tstat->total_trans;
-		uniqname(mail->mail_name);
-		cnsendnt("250 OK\r\n");
+		uniqname(envel->mail_name);
+		cwritent("250 OK\r\n");
 	} else {
-		cnsendnt("501 Syntax Error\r\n");
+		cwritent("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
 }
@@ -86,34 +77,34 @@ static void dorcpt(void)
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
 	if (!prcpt(local, domain)) {
-		cnsendnt("501 Syntax Error\r\n");
+		cwritent("501 Syntax Error\r\n");
 		++tstat->total_viols;
 		return;
 	}
 	if (strcmp(domain, my_domain) != 0) {
-		cnsendnt("550 User not local\r\n"); /* TODO should this be 551? */
+		cwritent("550 User not local\r\n"); /* TODO should this be 551? */
 		++tstat->total_viols;
 		return;
 	}
 	if (!vrfylocal(local)) {
-		cnsendnt("550 User non-existant\r\n");
+		cwritent("550 User non-existant\r\n");
 		++tstat->total_viols;
 		return;
 	}
-	for (int i = 0; i < mail->rcpt_count; ++i) {
-		if (strcmp(local, mail->rcpt_list[i]) == 0) {
-			cnsendnt("550 Repeated user\r\n");
+	for (int i = 0; i < envel->rcpt_count; ++i) {
+		if (strcmp(local, envel->rcpt_list[i]) == 0) {
+			cwritent("550 Repeated user\r\n");
 			++tstat->total_viols;
 			return;
 		}
 	}
-	if (mail->rcpt_count >= RCPT_MAX) {
-		cnsendnt("452 Too many users\r\n");
+	if (envel->rcpt_count >= RCPT_MAX) {
+		cwritent("452 Too many users\r\n");
 		return;
 	}
 	++tstat->total_rcpts;
-	strcpy(mail->rcpt_list[mail->rcpt_count++], local);
-	cnsendnt("250 OK\r\n");
+	strcpy(envel->rcpt_list[envel->rcpt_count++], local);
+	cwritent("250 OK\r\n");
 }
 
 static void acdata(int files[])
@@ -122,18 +113,18 @@ static void acdata(int files[])
 	int inc = 0, ini = 0, outc = 0, match = 0;
 	for (;;) {
 		if (ini >= inc) {
-			inc = cnrecv(inb, sizeof(inb));
+			inc = cread(inb, sizeof(inb));
 			ini = 0;
 		}
 		if (outc + 4 > (int) sizeof(outb)) {
-			for (int i = 0; i < mail->rcpt_count; ++i) {
+			for (int i = 0; i < envel->rcpt_count; ++i) {
 				write(files[i], outb, outc); /* TODO error checking & resume after partial write */
 			}
 			outc = 0;
 		}
 		if (inb[ini] == "\r\n.\r\n"[match]) {
 			if (++match == 5) {
-				for (int i = 0; i < mail->rcpt_count; ++i) {
+				for (int i = 0; i < envel->rcpt_count; ++i) {
 					write(files[i], outb, outc); /* TODO error checking & resume after partial write */
 				}
 				return;
@@ -155,59 +146,49 @@ static void acdata(int files[])
 static void dodata(void)
 {
 	if (!pcrlf()) {
-		cnsendnt("501 Syntax Error\r\n");
+		cwritent("501 Syntax Error\r\n");
 		++tstat->total_viols;
 	}
-	cnsendnt("354 Listening\r\n");
+	cwritent("354 Listening\r\n");
 	int files[RCPT_MAX];
-	for (int i = 0; i < mail->rcpt_count; ++i) {
+	for (int i = 0; i < envel->rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
-		mailpath(name, mail->rcpt_list[i], "tmp", mail->mail_name);
+		mailpath(name, envel->rcpt_list[i], "tmp", envel->mail_name);
 		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
 	}
 	acdata(files);
-	for (int i = 0; i < mail->rcpt_count; ++i) {
+	for (int i = 0; i < envel->rcpt_count; ++i) {
 		close(files[i]);
 		char tmpname[MAILPATH_LEN+1];
-		mailpath(tmpname, mail->rcpt_list[i], "tmp", mail->mail_name);
+		mailpath(tmpname, envel->rcpt_list[i], "tmp", envel->mail_name);
 		char newname[MAILPATH_LEN+1];
-		mailpath(newname, mail->rcpt_list[i], "new", mail->mail_name);
+		mailpath(newname, envel->rcpt_list[i], "new", envel->mail_name);
 		rename(tmpname, newname); /* TODO error checking */
 	}
-	memset(mail, 0, sizeof(*mail));
-	cnsendnt("250 OK\r\n");
+	memset(envel, 0, sizeof(*envel));
+	cwritent("250 OK\r\n");
 }
 
-void recvmail(int socket)
+void recvmail(void)
 {
-	const char *conf[NUM_CF_FIELDS];
 	struct tstat tstat_buf;
-	struct mail mail_buf;
+	struct envel envel_buf;
 	char line[COMMAND_LEN];
-
-	loadconf(conf, findconf());
-	strcpy(my_domain, conf[CF_DOMAIN]); /* There *shouldn't* be an overflow here. */
-	servercn(conf, socket);
-	dropprivs(conf);
-	freeconf(conf);
 
 	tstat = &tstat_buf;
 	memset(tstat, 0, sizeof(*tstat));
 	tstat->start_time = time(NULL);
 	strcpy(tstat->cl_domain, "<DOMAIN UNKNOWN>");
 
-	mail = &mail_buf;
-	memset(mail, 0, sizeof(*mail));
+	envel = &envel_buf;
+	memset(envel, 0, sizeof(*envel));
 
-	handlesignals(cleanup);
-	atexit(cleanup);
-
-	cnsendnt("220 ");
-	cnsendnt(my_domain);
-	cnsendnt(" Ready\r\n");
+	cwritent("220 ");
+	cwritent(my_domain);
+	cwritent(" Ready\r\n");
 	for (;;) {
-		while (!cnrecvln(line, sizeof(line))) {
-			cnsendnt("500 Line too Long\r\n");
+		while (!creadln(line, sizeof(line))) {
+			cwritent("500 Line too Long\r\n");
 			++tstat->total_viols;
 		}
 		cphead = line;
@@ -217,11 +198,12 @@ void recvmail(int socket)
 			dohelo(1);
 		} else if (pword("STARTTLS")) {
 			if (pcrlf()) {
-				cnsendnt("220 TLS now\r\n");
-				/* TODO Correctly report error to client! */
-				if (cnstarttls() < 0) exit(1);
+				cwritent("220 TLS now\r\n");
+				cread = cread_tls;
+				cwrite = cwrite_tls;
+				/* TODO reset here? */
 			} else {
-				cnsendnt("501 Syntax Error\r\n");
+				cwritent("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("MAIL")) {
@@ -232,31 +214,38 @@ void recvmail(int socket)
 			dodata();
 		} else if (pword("NOOP")) {
 			if (pcrlf()) {
-				cnsendnt("250 OK\r\n");
+				cwritent("250 OK\r\n");
 			} else {
-				cnsendnt("501 Syntax Error\r\n");
+				cwritent("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
-				memset(mail, 0, sizeof(*mail));
-				cnsendnt("250 OK\r\n");
+				memset(envel, 0, sizeof(*envel));
+				cwritent("250 OK\r\n");
 			} else {
-				cnsendnt("501 Syntax Error\r\n");
+				cwritent("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else if (pword("QUIT")) {
 			if (pcrlf()) {
-				cnsendnt("221 ");
-				cnsendnt(my_domain);
-				cnsendnt(" Bye\r\n");
+				cwritent("221 ");
+				cwritent(my_domain);
+				cwritent(" Bye\r\n");
+				int duration = (int) difftime(time(NULL), tstat->start_time);
+				fprintf(stderr, "%us\t%uV\t%uT\t%uR\t%s\n",
+					duration, tstat->total_viols, tstat->total_trans, tstat->total_rcpts, tstat->cl_domain);
+				if (cntls != NULL) {
+					tls_close(cntls);
+					tls_free(cntls);
+				}
 				exit(0);
 			} else {
-				cnsendnt("501 Syntax Error\r\n");
+				cwritent("501 Syntax Error\r\n");
 				++tstat->total_viols;
 			}
 		} else {
-			cnsendnt("500 Unknown Command\r\n");
+			cwritent("500 Unknown Command\r\n");
 			++tstat->total_viols;
 		}
 	}
