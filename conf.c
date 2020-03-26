@@ -67,8 +67,12 @@ static char *readfile(const char *filename)
 		die("Can't stat config file:");
 	if ((data = malloc(info.st_size+1)) == NULL)
 		die("malloc:");
-	if (read(fd, data, info.st_size) != info.st_size)
-		die("Can't read config file:");
+	ssize_t got = 0;
+	while (got < info.st_size) {
+		ssize_t s = read(fd, data + got, info.st_size - got);
+		if (s <= 0) die("Can't read config file:");
+		got += s;
+	}
 	data[info.st_size] = 0;
 	close(fd);
 	return data;
