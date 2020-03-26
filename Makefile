@@ -11,8 +11,8 @@ all: bmaild
 bmaild: bmaild.o recv.o mbox.o smtp.o conf.o conn.o util.o
 	$(LD) $(LDFLAGS) $(TLSLIBS) $^$> -o $@
 
-bmaild.o: util.h
-recv.o: conf.h conn.h mbox.h smtp.h util.h
+bmaild.o: util.h conf.h conn.h
+recv.o: conn.h mbox.h smtp.h util.h
 conf.o: conf.h util.h
 conn.o: conf.h conn.h util.h
 mbox.o: mbox.h util.h

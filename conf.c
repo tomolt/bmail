@@ -70,7 +70,8 @@ static char *readfile(const char *filename)
 	ssize_t got = 0;
 	while (got < info.st_size) {
 		ssize_t s = read(fd, data + got, info.st_size - got);
-		if (s <= 0) die("Can't read config file:");
+		if (s < 0) ioerr("read");
+		if (s == 0) die("Config file changed size.");
 		got += s;
 	}
 	data[info.st_size] = 0;
