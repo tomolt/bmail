@@ -44,13 +44,3 @@ int vrfylocal(const char *name)
 	return S_ISDIR(info.st_mode);
 }
 
-void mailpath(char buf[], char local[], char folder[], char mname[])
-{
-	int llen = strlen(local);
-	memcpy(buf, local, llen);
-	*(buf + llen) = '/';
-	memcpy(buf + llen + 1, folder, 3);
-	*(buf + llen + 4) = '/';
-	strcpy(buf + llen + 5, mname);
-}
-

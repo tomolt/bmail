@@ -71,3 +71,21 @@ unsigned long pcrandom32(void)
 #endif
 }
 
+void catpath(char *buf, char *first, ...)
+{
+	size_t len = strlen(first);
+	memcpy(buf, first, len);
+	buf += len;
+	va_list va;
+	va_start(va, first);
+	char *arg;
+	while ((arg = va_arg(va, char *)) != NULL) {
+		*buf = '/', ++buf;
+		len = strlen(arg);
+		memcpy(buf, arg, len);
+		buf += len;
+	}
+	va_end(va);
+	*buf = 0;
+}
+

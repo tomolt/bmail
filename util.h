@@ -12,3 +12,5 @@ void handlesignals(void (*handler)(int));
 void reapchildren(void);
 /* Portably generate cryptographic random 32-bit numbers. */
 unsigned long pcrandom32(void);
+
+void catpath(char *buf, char *first, ...);

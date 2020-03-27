@@ -153,16 +153,16 @@ static void dodata(void)
 	int files[RCPT_MAX];
 	for (int i = 0; i < envel->rcpt_count; ++i) {
 		char name[MAILPATH_LEN+1];
-		mailpath(name, envel->rcpt_list[i], "tmp", envel->mail_name);
+		catpath(name, envel->rcpt_list[i], "tmp", envel->mail_name, NULL);
 		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
 	}
 	acdata(files);
 	for (int i = 0; i < envel->rcpt_count; ++i) {
 		close(files[i]);
 		char tmpname[MAILPATH_LEN+1];
-		mailpath(tmpname, envel->rcpt_list[i], "tmp", envel->mail_name);
+		catpath(tmpname, envel->rcpt_list[i], "tmp", envel->mail_name, NULL);
 		char newname[MAILPATH_LEN+1];
-		mailpath(newname, envel->rcpt_list[i], "new", envel->mail_name);
+		catpath(newname, envel->rcpt_list[i], "new", envel->mail_name, NULL);
 		rename(tmpname, newname); /* TODO error checking */
 	}
 	memset(envel, 0, sizeof(*envel));
