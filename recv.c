@@ -6,6 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #include <tls.h>
 
@@ -13,8 +14,6 @@
 #include "mbox.h"
 #include "smtp.h"
 #include "util.h"
-
-#define RCPT_MAX 100
 
 extern char my_domain[256];
 
@@ -27,17 +26,29 @@ struct tstat
 	char cl_domain[DOMAIN_LEN+1];
 };
 
-struct envel
+struct addr
 {
-	char mail_name[UNIQNAME_LEN+1];
-	char sender_local[LOCAL_LEN+1];
-	char sender_domain[DOMAIN_LEN+1];
-	char rcpt_list[RCPT_MAX][LOCAL_LEN+1];
-	int rcpt_count;
+	char *local;
+	char *domain;
 };
 
 static struct tstat *tstat;
-static struct envel *envel;
+static struct addr sender;
+static struct addr *rcpts = NULL;
+static int nrcpts;
+static int crcpts;
+
+static void reset(void)
+{
+	memset(sender.local, 0, LOCAL_LEN + 1);
+	memset(sender.domain, 0, DOMAIN_LEN + 1);
+	for (int i = 0; i < nrcpts; ++i)
+		free(rcpts[i].local);
+	free(rcpts);
+	rcpts = NULL;
+	nrcpts = 0;
+	crcpts = 0;
+}
 
 static void dohelo(int ext)
 {
@@ -62,9 +73,12 @@ static void dohelo(int ext)
 
 static void domail(void)
 {
-	if (pmail(envel->sender_local, envel->sender_domain)) {
+	char local[LOCAL_LEN+1];
+	char domain[DOMAIN_LEN+1];
+	if (pmail(local, domain)) {
+		strcpy(sender.local, local);
+		strcpy(sender.domain, domain);
 		++tstat->total_trans;
-		uniqname(envel->mail_name);
 		cwritent("250 OK\r\n");
 	} else {
 		cwritent("501 Syntax Error\r\n");
@@ -76,38 +90,42 @@ static void dorcpt(void)
 {
 	char local[LOCAL_LEN+1];
 	char domain[DOMAIN_LEN+1];
+
 	if (!prcpt(local, domain)) {
 		cwritent("501 Syntax Error\r\n");
 		++tstat->total_viols;
 		return;
 	}
-	if (strcmp(domain, my_domain) != 0) {
-		cwritent("550 User not local\r\n"); /* TODO should this be 551? */
-		++tstat->total_viols;
-		return;
-	}
-	if (!vrfylocal(local)) {
-		cwritent("550 User non-existant\r\n");
-		++tstat->total_viols;
-		return;
-	}
-	for (int i = 0; i < envel->rcpt_count; ++i) {
-		if (strcmp(local, envel->rcpt_list[i]) == 0) {
-			cwritent("550 Repeated user\r\n");
-			++tstat->total_viols;
+
+	if (nrcpts + 1 > crcpts) {
+		int cap = crcpts == 0 ? 16 : 2 * crcpts;
+		void *mem = reallocarray(rcpts, cap, sizeof(rcpts[0]));
+		if (mem == NULL) {
+			cwritent("450 Insufficient RAM\r\n"); /* FIXME is this the right status code? */
 			return;
 		}
+		rcpts = mem;
+		crcpts = cap;
 	}
-	if (envel->rcpt_count >= RCPT_MAX) {
-		cwritent("452 Too many users\r\n");
+
+	size_t local_len = strlen(local);
+	size_t domain_len = strlen(domain);
+	struct addr addr;
+	addr.local = malloc(local_len + domain_len + 2);
+	if (addr.local == NULL) {
+		cwritent("450 Insufficient RAM\r\n"); /* FIXME is this the right status code? */
 		return;
 	}
+	addr.domain = addr.local + local_len + 1;
+	strcpy(addr.local, local);
+	strcpy(addr.domain, domain);
+	rcpts[nrcpts++] = addr;
+
 	++tstat->total_rcpts;
-	strcpy(envel->rcpt_list[envel->rcpt_count++], local);
 	cwritent("250 OK\r\n");
 }
 
-static void acdata(int files[])
+static void acdata(int fd)
 {
 	char inb[512], outb[512];
 	int inc = 0, ini = 0, outc = 0, match = 0;
@@ -117,16 +135,12 @@ static void acdata(int files[])
 			ini = 0;
 		}
 		if (outc + 4 > (int) sizeof(outb)) {
-			for (int i = 0; i < envel->rcpt_count; ++i) {
-				write(files[i], outb, outc); /* TODO error checking & resume after partial write */
-			}
+			write(fd, outb, outc); /* TODO error checking & resume after partial write */
 			outc = 0;
 		}
 		if (inb[ini] == "\r\n.\r\n"[match]) {
 			if (++match == 5) {
-				for (int i = 0; i < envel->rcpt_count; ++i) {
-					write(files[i], outb, outc); /* TODO error checking & resume after partial write */
-				}
+				write(fd, outb, outc); /* TODO error checking & resume after partial write */
 				return;
 			}
 		} else {
@@ -143,6 +157,18 @@ static void acdata(int files[])
 	}
 }
 
+
+static int addrcmp(const void *p1, const void *p2)
+{
+	const struct addr a1 = *(const struct addr *) p1;
+	const struct addr a2 = *(const struct addr *) p2;
+	int c = strcmp(a1.domain, a2.domain);
+	if (c) return c;
+	c = strcmp(a1.local, a2.local);
+	return c;
+}
+
+/* FIXME This entire function doesn't do error handling! */
 static void dodata(void)
 {
 	if (!pcrlf()) {
@@ -150,29 +176,57 @@ static void dodata(void)
 		++tstat->total_viols;
 	}
 	cwritent("354 Listening\r\n");
-	int files[RCPT_MAX];
-	for (int i = 0; i < envel->rcpt_count; ++i) {
-		char name[MAILPATH_LEN+1];
-		catpath(name, envel->rcpt_list[i], "tmp", envel->mail_name, NULL);
-		files[i] = open(name, O_CREAT | O_EXCL | O_WRONLY, 0440); /* TODO error checking */
+	chdir(".queue");
+
+	char tmp_msg[32], tmp_env[32];
+	sprintf(tmp_msg, "tmp/%d.msg", getpid());
+	sprintf(tmp_env, "tmp/%d.env", getpid());
+
+	int datafd = open(tmp_msg, O_CREAT | O_WRONLY);
+	acdata(datafd);
+	close(datafd);
+
+	qsort(rcpts, nrcpts, sizeof(rcpts[0]), addrcmp);
+
+	int i = 0;
+	while (i < nrcpts) {
+		FILE *envf = fopen(tmp_env, "w");
+
+		struct stat info;
+		stat(tmp_env, &info);
+		char prm_msg[32], prm_env[32];
+		sprintf(prm_msg, "msg/%lu", info.st_ino);
+		sprintf(prm_env, "env/%lu", info.st_ino);
+
+		char *domain = rcpts[i].domain;
+		fprintf(envf, "bq1\n%s\n%s\n%s\n--\n",
+			domain, sender.local, sender.domain);
+
+		fprintf(envf, "%s\n", rcpts[i++].local);
+		while (i < nrcpts) {
+			if (strcmp(rcpts[i].domain, domain) != 0) break;
+			if (strcmp(rcpts[i].local, rcpts[i-1].local) != 0) {
+				fprintf(envf, "%s\n", rcpts[i].local);
+			}
+			++i;
+		}
+
+		fclose(envf);
+		link(tmp_msg, prm_msg);
+		rename(tmp_env, prm_env);
 	}
-	acdata(files);
-	for (int i = 0; i < envel->rcpt_count; ++i) {
-		close(files[i]);
-		char tmpname[MAILPATH_LEN+1];
-		catpath(tmpname, envel->rcpt_list[i], "tmp", envel->mail_name, NULL);
-		char newname[MAILPATH_LEN+1];
-		catpath(newname, envel->rcpt_list[i], "new", envel->mail_name, NULL);
-		rename(tmpname, newname); /* TODO error checking */
-	}
-	memset(envel, 0, sizeof(*envel));
+	unlink(tmp_msg);
+
+	chdir("..");
+	reset();
 	cwritent("250 OK\r\n");
 }
 
 void recvmail(void)
 {
 	struct tstat tstat_buf;
-	struct envel envel_buf;
+	char sender_local_buf[LOCAL_LEN + 1];
+	char sender_domain_buf[DOMAIN_LEN + 1];
 	char line[COMMAND_LEN];
 
 	tstat = &tstat_buf;
@@ -180,8 +234,10 @@ void recvmail(void)
 	tstat->start_time = time(NULL);
 	strcpy(tstat->cl_domain, "<DOMAIN UNKNOWN>");
 
-	envel = &envel_buf;
-	memset(envel, 0, sizeof(*envel));
+	sender.local = sender_local_buf;
+	sender.domain = sender_domain_buf;
+	memset(sender.local, 0, LOCAL_LEN + 1);
+	memset(sender.domain, 0, DOMAIN_LEN + 1);
 
 	cwritent("220 ");
 	cwritent(my_domain);
@@ -221,7 +277,7 @@ void recvmail(void)
 			}
 		} else if (pword("RSET")) {
 			if (pcrlf()) {
-				memset(envel, 0, sizeof(*envel));
+				reset();
 				cwritent("250 OK\r\n");
 			} else {
 				cwritent("501 Syntax Error\r\n");
